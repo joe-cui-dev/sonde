@@ -16,8 +16,9 @@ import { openDb } from "../store/db.js";
 import { PageCache } from "../store/cache.js";
 import { RunStore } from "../store/runs.js";
 import { createRunTelemetry } from "../telemetry/index.js";
-import { createTools } from "../tools/index.js";
+import { allocateChars, createTools } from "../tools/index.js";
 import { SourceRegistry } from "./source-registry.js";
+import { validateCitations } from "./citations.js";
 import { RESEARCH_INSTRUCTIONS, synthesisPrompt } from "./prompts.js";
 import { createLogger } from "../util/log.js";
 import type {
@@ -26,6 +27,8 @@ import type {
   ResearchReport,
   ResearchResult,
   RunEvent,
+  SourceEvidence,
+  SourceRef,
   StopReason,
 } from "../types.js";
 
@@ -49,7 +52,8 @@ const ReportSchema = z.object({
         quote: z
           .string()
           .describe(
-            "Short verbatim span from that source supporting the claim.",
+            "Short span copied verbatim from that source's text. Checked " +
+              "against the source; a quote that is not found there is dropped.",
           ),
       }),
     )
@@ -155,9 +159,11 @@ export async function runResearch(
   let stoppedBy: StopReason = "complete";
   let notes = "";
 
-  // Each step's prose is kept as it arrives. If the loop later throws — a 429, a
-  // provider 5xx, a context overflow, or the user hitting Ctrl-C — the retrieval
-  // already paid for is still there to synthesise from.
+  // Every step's prose is kept as it arrives, and the notes are the whole
+  // sequence — not just the last step. When the loop is cut short by a step or
+  // budget limit, `result.text` holds only the final step's text, which is
+  // typically a sentence about what the model was *about* to do. Relying on it
+  // silently threw away every finding from the steps before.
   const stepTexts: string[] = [];
 
   emit({ type: "phase", phase: "research" });
@@ -179,7 +185,9 @@ export async function runResearch(
         });
       },
     });
-    notes = result.text.trim() || stepTexts.join("\n\n");
+    const finalText = result.text?.trim() ?? "";
+    if (finalText && stepTexts.at(-1) !== finalText) stepTexts.push(finalText);
+    notes = stepTexts.join("\n\n");
   } catch (error) {
     stoppedBy = "error";
     const message = error instanceof Error ? error.message : String(error);
@@ -197,12 +205,13 @@ export async function runResearch(
   if (stoppedBy !== "error" && limitHit) stoppedBy = limitHit;
 
   // ── Synthesis ───────────────────────────────────────────────────────────────
-  // Deliberately a separate call: the writer sees only the notes and the list of
-  // pages that were actually read, so a citation can be checked mechanically.
-  const readSources = registry.read();
+  // Deliberately a separate call. The writer sees the notes plus the actual text
+  // of every page that was read — the text is what makes "quote your source" a
+  // checkable instruction rather than an invitation to paraphrase a headline.
+  const evidence = collectEvidence(registry.read(), cache);
   let report: ResearchReport | null = null;
 
-  if (notes.trim().length > 0 && readSources.length > 0) {
+  if (notes.trim().length > 0 && evidence.length > 0) {
     emit({ type: "phase", phase: "synthesis" });
     try {
       const synthesis = await generateText({
@@ -211,7 +220,7 @@ export async function runResearch(
         prompt: synthesisPrompt({
           question,
           notes,
-          sources: readSources,
+          evidence,
           degraded: stoppedBy !== "complete",
         }),
         ...(options.signal ? { abortSignal: options.signal } : {}),
@@ -225,7 +234,11 @@ export async function runResearch(
 
       budget.addModelUsage(readUsage(synthesis));
 
-      const validated = validateCitations(synthesis.output, registry);
+      const validated = validateCitations(
+        synthesis.output,
+        registry,
+        evidence,
+      );
       report = validated.report;
       warnings.push(...validated.warnings);
       for (const w of validated.warnings) emit({ type: "warning", message: w });
@@ -234,7 +247,7 @@ export async function runResearch(
       warnings.push(`synthesis failed: ${message}`);
       emit({ type: "warning", message });
     }
-  } else if (readSources.length === 0) {
+  } else if (evidence.length === 0) {
     warnings.push(
       "No source was successfully read — nothing to cite, so no report was written.",
     );
@@ -285,34 +298,33 @@ function readUsage(source: unknown): {
   };
 }
 
-/** Drops citations pointing at pages we never read, rather than trusting the model. */
-function validateCitations(
-  report: ResearchReport,
-  registry: SourceRegistry,
-): { report: ResearchReport; warnings: string[] } {
-  const warnings: string[] = [];
-  const kept = report.citations.filter((citation) => {
-    const ref = registry.byId(citation.id);
-    if (!ref || !ref.read) {
-      warnings.push(
-        `dropped citation ${citation.id} — that source was never read`,
-      );
-      return false;
-    }
-    citation.url = ref.url;
-    citation.title = ref.title;
-    return true;
+/** Per-source and total character caps on the evidence handed to the writer. */
+const MAX_EVIDENCE_CHARS_PER_SOURCE = 6_000;
+const MAX_EVIDENCE_CHARS_TOTAL = 40_000;
+
+/**
+ * Pairs every source that was read with the page text behind it, sharing the
+ * character budget out fairly so one long page cannot crowd the others out.
+ *
+ * A source whose text we cannot produce is dropped rather than listed: offering
+ * the writer an id it has no text for is exactly how unquotable citations get
+ * written in the first place.
+ */
+function collectEvidence(
+  sources: SourceRef[],
+  cache: PageCache,
+): SourceEvidence[] {
+  const texts = sources.map((ref) => cache.get(ref.url)?.text ?? "");
+  const allowances = allocateChars(
+    texts.map((text) => text.length),
+    MAX_EVIDENCE_CHARS_TOTAL,
+    MAX_EVIDENCE_CHARS_PER_SOURCE,
+  );
+
+  const evidence: SourceEvidence[] = [];
+  sources.forEach((ref, index) => {
+    const excerpt = (texts[index] ?? "").slice(0, allowances[index] ?? 0);
+    if (excerpt.length > 0) evidence.push({ ref, excerpt });
   });
-
-  const validIds = new Set(kept.map((c) => c.id));
-  for (const id of report.report.match(/\[S\d+\]/g) ?? []) {
-    const bare = id.slice(1, -1);
-    if (!validIds.has(bare)) {
-      warnings.push(
-        `report cites ${bare}, which is not in the validated citation list`,
-      );
-    }
-  }
-
-  return { report: { ...report, citations: kept }, warnings };
+  return evidence;
 }

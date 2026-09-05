@@ -48,13 +48,26 @@ export interface ToolContext {
   onSource: (id: string) => void;
 }
 
-const BUDGET_REFUSAL = {
-  refused: true as const,
-  instruction:
-    "The retrieval budget for this run is spent. Do not call any more tools. " +
-    "Write your conclusion now from the evidence you already have, and be explicit " +
-    "about what you could not verify.",
-};
+/**
+ * What the model is told when a tool declines to run. The two reasons need
+ * different wording: "spent" means there is no money left, "final_step" means
+ * there is money but no step left in which to read the answer.
+ */
+function refusal(reason: "spent" | "final_step") {
+  return {
+    refused: true as const,
+    reason,
+    instruction:
+      reason === "final_step"
+        ? "This is the last step of the run. Anything fetched now would be paid " +
+          "for and you would never get to read it. Do not call any more tools. " +
+          "Write your findings now from the evidence you already have, and be " +
+          "explicit about what you could not verify."
+        : "The retrieval budget for this run is spent. Do not call any more tools. " +
+          "Write your conclusion now from the evidence you already have, and be " +
+          "explicit about what you could not verify.",
+  };
+}
 
 export function createTools(ctx: ToolContext) {
   return {
@@ -83,8 +96,8 @@ export function createTools(ctx: ToolContext) {
         excludeDomains: z.array(z.string()).optional(),
       }),
       execute: async (input) => {
-        if (!ctx.budget.canRetrieve())
-          return { ...BUDGET_REFUSAL, reason: "budget" };
+        const blocked = ctx.budget.retrievalBlockedBy();
+        if (blocked) return refusal(blocked);
 
         const started = Date.now();
         ctx.emit({ type: "tool_start", tool: "web_search", input });
@@ -162,12 +175,15 @@ export function createTools(ctx: ToolContext) {
         let failures: Array<{ url: string; error: string }> = [];
 
         if (misses.length > 0) {
-          if (!ctx.budget.canRetrieve()) {
-            if (cached.length === 0)
-              return { ...BUDGET_REFUSAL, reason: "budget" };
+          const blocked = ctx.budget.retrievalBlockedBy();
+          if (blocked) {
+            if (cached.length === 0) return refusal(blocked);
             failures = misses.map((url) => ({
               url,
-              error: "skipped: retrieval budget spent",
+              error:
+                blocked === "final_step"
+                  ? "skipped: last step of the run, you would never read it"
+                  : "skipped: retrieval budget spent",
             }));
           } else {
             const outcome = await ctx.retrieval.fetcher.fetch(misses, {

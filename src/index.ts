@@ -6,6 +6,11 @@ export { loadConfig, type Config } from "./config.js";
 export { preflight, type Check } from "./preflight.js";
 export { BudgetTracker, BudgetExceededError } from "./budget/budget.js";
 export { SourceRegistry } from "./agent/source-registry.js";
+export {
+  validateCitations,
+  quoteAppearsIn,
+  normalizeQuote,
+} from "./agent/citations.js";
 export { createRetrieval, type Retrieval } from "./providers/index.js";
 export { TavilyProvider } from "./providers/tavily.js";
 export type {

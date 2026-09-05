@@ -34,6 +34,33 @@ describe('BudgetTracker', () => {
     expect(budget.canRetrieve()).toBe(false);
   });
 
+  test('reserves the final step, because its tool results are never read', () => {
+    const budget = new BudgetTracker({ ...limits, maxSteps: 3 });
+
+    // Steps 0 and 1: whatever they fetch, a later step still gets to read it.
+    expect(budget.stepsLeft).toBe(3);
+    expect(budget.retrievalBlockedBy()).toBeNull();
+    budget.countStep();
+    expect(budget.retrievalBlockedBy()).toBeNull();
+    budget.countStep();
+
+    // Step 2 is the last one: the loop stops before the model sees any result.
+    expect(budget.stepsLeft).toBe(1);
+    expect(budget.retrievalBlockedBy()).toBe('final_step');
+    expect(budget.canRetrieve()).toBe(false);
+    // Blocked on steps, not on money — the run is not exhausted yet.
+    expect(budget.exhausted).toBe(false);
+    expect(budget.check()).toBeNull();
+  });
+
+  test('reports an exhausted budget as spent, not as the final step', () => {
+    const budget = new BudgetTracker({ ...limits, maxSteps: 3 });
+    budget.addModelUsage({ inputTokens: 100 });
+
+    expect(budget.retrievalBlockedBy()).toBe('spent');
+    expect(budget.stepsLeft).toBe(3);
+  });
+
   test('reserves synthesis headroom before the budget is exhausted', () => {
     jest.useFakeTimers();
     const budget = new BudgetTracker(limits);

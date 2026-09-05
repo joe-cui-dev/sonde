@@ -50,12 +50,18 @@ export function calls(
   } as GenerateResult;
 }
 
-/** Plays the given steps in order; a step may be an Error to throw instead. */
+/**
+ * Plays the given steps in order; a step may be an Error to throw instead.
+ * Every prompt it was sent is kept, flattened to text — that is how a test can
+ * assert what the model was actually shown, rather than what we meant to show it.
+ */
 export function scriptedModel(steps: Array<GenerateResult | Error>) {
   let index = 0;
+  const prompts: string[] = [];
   const model = new MockLanguageModelV4({
     modelId: "mock/planner",
-    doGenerate: async () => {
+    doGenerate: async (options) => {
+      prompts.push(flattenPrompt(options.prompt));
       const step = steps[index];
       index += 1;
       if (step === undefined)
@@ -65,10 +71,30 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
     },
   });
   return Object.assign(model, {
+    prompts,
     get callCount() {
       return index;
     },
   });
+}
+
+/** Collapses a prompt's messages into one searchable string. */
+function flattenPrompt(prompt: unknown): string {
+  const messages = (prompt ?? []) as Array<{ content?: unknown }>;
+  return messages
+    .map((message) => {
+      const content = message.content;
+      if (typeof content === "string") return content;
+      if (!Array.isArray(content)) return "";
+      return content
+        .map((part: Record<string, unknown>) =>
+          typeof part["text"] === "string"
+            ? part["text"]
+            : JSON.stringify(part["output"] ?? part["input"] ?? ""),
+        )
+        .join("\n");
+    })
+    .join("\n");
 }
 
 export interface FakePage {
@@ -80,12 +106,14 @@ export interface FakePage {
 /** Retrieval that never touches the network and bills a fixed credit cost. */
 export function fakeRetrieval(
   pages: FakePage[],
-): Retrieval & { searches: string[] } {
+): Retrieval & { searches: string[]; fetches: string[][] } {
   const searches: string[] = [];
+  const fetches: string[][] = [];
   const byUrl = new Map(pages.map((p) => [p.url, p]));
 
   return {
     searches,
+    fetches,
     searcher: {
       name: "fake",
       async search(query): Promise<SearchOutcome> {
@@ -104,6 +132,7 @@ export function fakeRetrieval(
     fetcher: {
       name: "fake",
       async fetch(urls): Promise<FetchOutcome> {
+        fetches.push([...urls]);
         const found = urls.filter((u) => byUrl.has(u));
         return {
           pages: found.map((u) => {

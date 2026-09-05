@@ -64,18 +64,34 @@ export class BudgetTracker {
     return this.check() !== null;
   }
 
+  /** Steps still available before `maxSteps` stops the loop. */
+  get stepsLeft(): number {
+    return Math.max(0, this.limits.maxSteps - this.steps);
+  }
+
   /**
-   * True while there is still room to spend on retrieval. Deliberately stricter
-   * than `exhausted`: we reserve headroom so the writer can still produce a
-   * report after the loop stops gathering.
+   * Why retrieval is blocked, or null while it is still allowed.
+   *
+   * `"final_step"` is the subtle one. Tools run *during* a step, but the model
+   * only sees what they returned on the *next* step. Fetching on the last step
+   * means paying for pages nobody ever reads — and worse, those pages get
+   * marked citable, so the writer is handed sources it has no text for. We stop
+   * retrieval one step early and let the model spend that step writing notes.
    */
-  canRetrieve(reservePct = 0.15): boolean {
-    if (this.exhausted) return false;
+  retrievalBlockedBy(reservePct = 0.15): "spent" | "final_step" | null {
+    if (this.exhausted) return "spent";
+    if (this.stepsLeft <= 1) return "final_step";
     const usdLeft = 1 - this.usdSpent / this.limits.maxUsd;
     const tokLeft =
       1 - (this.inputTokens + this.outputTokens) / this.limits.maxTokens;
     const creditLeft = 1 - this.credits / this.limits.maxSearchCredits;
-    return Math.min(usdLeft, tokLeft, creditLeft) > reservePct;
+    // Reserve headroom so the writer can still produce a report afterwards.
+    return Math.min(usdLeft, tokLeft, creditLeft) > reservePct ? null : "spent";
+  }
+
+  /** True while there is still room — and a step left — to spend on retrieval. */
+  canRetrieve(reservePct = 0.15): boolean {
+    return this.retrievalBlockedBy(reservePct) === null;
   }
 
   snapshot(): BudgetSnapshot {

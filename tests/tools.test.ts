@@ -62,15 +62,19 @@ describe("read_pages", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  function context(pages: FakePage[]) {
+  function context(pages: FakePage[], limits = LIMITS) {
     const registry = new SourceRegistry();
+    const retrieval = fakeRetrieval(pages);
+    const budget = new BudgetTracker(limits);
     return {
       registry,
+      retrieval,
+      budget,
       ctx: {
-        retrieval: fakeRetrieval(pages),
+        retrieval,
         registry,
         cache: new PageCache(db, 3_600_000),
-        budget: new BudgetTracker(LIMITS),
+        budget,
         emit: () => {},
         onSource: () => {},
       },
@@ -117,5 +121,116 @@ describe("read_pages", () => {
     expect(result.pages).toHaveLength(0);
     expect(result.failures).toHaveLength(1);
     expect(registry.read()).toHaveLength(0);
+  });
+});
+
+describe("the final-step reserve", () => {
+  let dir: string;
+  let db: Db;
+
+  const page: FakePage = {
+    url: "https://example.test/spec",
+    title: "The Spec",
+    text: "The limit is 42 requests per second.",
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sonde-reserve-"));
+    db = openDb(join(dir, "test.db"));
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function context(limits = { ...LIMITS, maxSteps: 3 }) {
+    const registry = new SourceRegistry();
+    const retrieval = fakeRetrieval([page]);
+    const budget = new BudgetTracker(limits);
+    return {
+      registry,
+      retrieval,
+      budget,
+      tools: createTools({
+        retrieval,
+        registry,
+        cache: new PageCache(db, 3_600_000),
+        budget,
+        emit: () => {},
+        onSource: () => {},
+      }),
+    };
+  }
+
+  const runOpts = { toolCallId: "t1", messages: [] } as never;
+
+  test("read_pages refuses on the last step instead of paying for an unread page", async () => {
+    const { registry, retrieval, budget, tools } = context();
+    budget.countStep();
+    budget.countStep(); // now on the final step of three
+
+    const result = (await tools.read_pages.execute!(
+      { urls: [page.url] },
+      runOpts,
+    )) as { refused?: true; reason?: string; instruction?: string };
+
+    expect(result.refused).toBe(true);
+    expect(result.reason).toBe("final_step");
+    expect(result.instruction).toContain("never get to read it");
+
+    // Nothing was fetched, and — the bug this guards — nothing became citable.
+    expect(retrieval.fetches).toEqual([]);
+    expect(registry.read()).toHaveLength(0);
+    expect(budget.snapshot().searchCredits).toBe(0);
+  });
+
+  test("web_search refuses on the last step too", async () => {
+    const { retrieval, budget, tools } = context();
+    budget.countStep();
+    budget.countStep();
+
+    const result = (await tools.web_search.execute!(
+      { query: "rate limit", topic: "general", maxResults: 5 },
+      runOpts,
+    )) as { refused?: true; reason?: string };
+
+    expect(result.refused).toBe(true);
+    expect(result.reason).toBe("final_step");
+    expect(retrieval.searches).toEqual([]);
+  });
+
+  test("still retrieves while a later step can read the result", async () => {
+    const { registry, retrieval, budget, tools } = context();
+    budget.countStep(); // one step used, two left
+
+    const result = (await tools.read_pages.execute!(
+      { urls: [page.url] },
+      runOpts,
+    )) as { pages?: unknown[]; refused?: true };
+
+    expect(result.refused).toBeUndefined();
+    expect(result.pages).toHaveLength(1);
+    expect(retrieval.fetches).toEqual([[page.url]]);
+    expect(registry.read()).toHaveLength(1);
+  });
+
+  test("serves a cached page on the last step, since that costs nothing", async () => {
+    const { registry, retrieval, budget, tools } = context();
+    await tools.read_pages.execute!({ urls: [page.url] }, runOpts);
+
+    budget.countStep();
+    budget.countStep();
+    budget.countStep();
+    // Exhausted on steps, but the page is already paid for and in the cache.
+    const result = (await tools.read_pages.execute!(
+      { urls: [page.url] },
+      runOpts,
+    )) as { pages?: Array<{ fromCache: boolean }>; refused?: true };
+
+    expect(result.refused).toBeUndefined();
+    expect(result.pages?.[0]?.fromCache).toBe(true);
+    expect(retrieval.fetches).toHaveLength(1); // no second network call
+    expect(registry.read()).toHaveLength(1);
   });
 });

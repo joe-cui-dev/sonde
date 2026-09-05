@@ -183,6 +183,155 @@ describe("runResearch (offline)", () => {
     expect(result.warnings.join(" ")).toContain("dropped citation S2");
   });
 
+  test("hands the writer the actual page text, not just titles and urls", async () => {
+    const writer = scriptedModel([says(JSON.stringify(REPORT))]);
+
+    await runResearch({
+      question: "What is the rate limit?",
+      config: testConfig(dbPath),
+      retrieval: fakeRetrieval(PAGES),
+      models: { planner: healthyPlanner(), writer },
+    });
+
+    const prompt = writer.prompts[0]!;
+    // The body of the page that was read — without it, "quote your source" is
+    // an instruction the writer can only satisfy by inventing something.
+    expect(prompt).toContain(PAGES[0]!.text);
+    // And the researcher's own notes, so the writer knows what was established.
+    expect(prompt).toContain("Established: 42 rps");
+    // The page that was never read stays out of the writer's reach entirely.
+    expect(prompt).not.toContain(PAGES[1]!.text);
+  });
+
+  test("drops a citation whose quote is not in the page that was read", async () => {
+    const fabricated = {
+      ...REPORT,
+      report: "The limit is 42 rps [S1].",
+      citations: [
+        {
+          id: "S1",
+          url: "https://example.test/spec",
+          title: "The Spec",
+          // Plausible, attributed to a page that really was read — and absent
+          // from that page. This is the shape of the failure a live run hit.
+          quote: "throughput doubled year over year",
+        },
+      ],
+    };
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: testConfig(dbPath),
+      retrieval: fakeRetrieval(PAGES),
+      models: {
+        planner: healthyPlanner(),
+        writer: scriptedModel([says(JSON.stringify(fabricated))]),
+      },
+    });
+
+    expect(result.report?.citations).toEqual([]);
+    expect(result.warnings.join(" ")).toContain(
+      "does not appear in that source's text",
+    );
+    expect(result.warnings.join(" ")).toContain("report cites S1");
+  });
+
+  test("keeps a citation quoting the page across markdown emphasis", async () => {
+    const emphasised: FakePage[] = [
+      {
+        url: "https://example.test/spec",
+        title: "The Spec",
+        text: "The limit is **42 requests per second**, as of March 2024.",
+      },
+    ];
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: testConfig(dbPath),
+      retrieval: fakeRetrieval(emphasised),
+      models: {
+        planner: healthyPlanner(),
+        writer: scriptedModel([says(JSON.stringify(REPORT))]),
+      },
+    });
+
+    expect(result.report?.citations.map((c) => c.id)).toEqual(["S1"]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  test("keeps every step's findings when the loop is cut off by max_steps", async () => {
+    const planner = scriptedModel([
+      calls(
+        "web_search",
+        { query: "rate limit", topic: "general", maxResults: 5 },
+        { text: "Sub-question: what is the documented limit?" },
+      ),
+      calls(
+        "read_pages",
+        { urls: ["https://example.test/spec"] },
+        { text: "Established: the spec says 42 rps [S1]." },
+      ),
+      calls(
+        "read_pages",
+        { urls: ["https://example.test/blog"] },
+        { text: "One more page to check before I conclude." },
+      ),
+    ]);
+    const writer = scriptedModel([says(JSON.stringify(REPORT))]);
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: { ...testConfig(dbPath), maxSteps: 3 },
+      retrieval: fakeRetrieval(PAGES),
+      models: { planner, writer },
+    });
+
+    expect(result.stoppedBy).toBe("max_steps");
+
+    // The regression: the run used to keep only the last step's text, throwing
+    // away the finding in step 2 — the one thing the report needed.
+    expect(result.notes).toContain("Sub-question: what is the documented limit");
+    expect(result.notes).toContain("Established: the spec says 42 rps");
+    expect(result.notes).toContain("One more page to check");
+    expect(writer.prompts[0]).toContain("Established: the spec says 42 rps");
+
+    // And the report still comes out cited rather than empty.
+    expect(result.report?.citations.map((c) => c.id)).toEqual(["S1"]);
+  });
+
+  test("does not pay for a page on the final step that nobody will read", async () => {
+    const retrieval = fakeRetrieval(PAGES);
+    const planner = scriptedModel([
+      calls("web_search", {
+        query: "rate limit",
+        topic: "general",
+        maxResults: 5,
+      }),
+      calls(
+        "read_pages",
+        { urls: ["https://example.test/spec"] },
+        { text: "Established: the spec says 42 rps [S1]." },
+      ),
+      calls("read_pages", { urls: ["https://example.test/blog"] }),
+    ]);
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: { ...testConfig(dbPath), maxSteps: 3 },
+      retrieval,
+      models: {
+        planner,
+        writer: scriptedModel([says(JSON.stringify(REPORT))]),
+      },
+    });
+
+    // The last step's fetch never happened, so the blog never became citable.
+    expect(retrieval.fetches).toEqual([["https://example.test/spec"]]);
+    expect(result.sources.filter((s) => s.read).map((s) => s.id)).toEqual([
+      "S1",
+    ]);
+  });
+
   test("records the run and its sources in sqlite", async () => {
     const result = await runResearch({
       question: "What is the rate limit?",

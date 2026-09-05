@@ -11,6 +11,17 @@ export interface SourceRef {
   read: boolean;
 }
 
+/**
+ * A source the writer is allowed to cite, paired with the page text it may
+ * quote from. The pairing is the point: a source with no excerpt is a source
+ * the writer would have to invent quotes for.
+ */
+export interface SourceEvidence {
+  ref: SourceRef;
+  /** Verbatim slice of the fetched page body. */
+  excerpt: string;
+}
+
 export interface SearchHit {
   url: string;
   title: string;
