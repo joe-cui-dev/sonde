@@ -1,0 +1,29 @@
+{
+  "name": "sonde",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A web research agent: AI SDK orchestration, OpenRouter reasoning, Tavily retrieval.",
+  "engines": { "node": ">=22.12" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": { "sonde": "./dist/cli.js" },
+  "scripts": {
+    "dev": "tsx --disable-warning=ExperimentalWarning src/cli.ts",
+    "research": "tsx --disable-warning=ExperimentalWarning src/cli.ts research",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --disable-warning=ExperimentalWarning dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@tavily/core": "^0.7.9",
+    "ai": "^7.0.93",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,203 @@
+#!/usr/bin/env node
+import { parseArgs } from 'node:util';
+import { writeFileSync } from 'node:fs';
+import { runResearch } from './agent/research-agent.js';
+import { loadConfig } from './config.js';
+import { openDb } from './store/db.js';
+import { RunStore } from './store/runs.js';
+import { createLogger, usd } from './util/log.js';
+import type { ResearchResult, RunEvent } from './types.js';
+
+const USAGE = `
+sonde — a web research agent
+
+  sonde research "<question>" [options]
+  sonde runs [--limit N]
+
+Options
+  -o, --out <file>       write the report to a markdown file
+      --json             print the full result as JSON on stdout
+      --max-steps <n>    override SONDE_MAX_STEPS
+      --max-usd <n>      override SONDE_MAX_USD
+      --quiet            suppress progress output
+  -h, --help             show this
+`;
+
+async function main(): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args: process.argv.slice(2),
+    allowPositionals: true,
+    options: {
+      out: { type: 'string', short: 'o' },
+      json: { type: 'boolean', default: false },
+      'max-steps': { type: 'string' },
+      'max-usd': { type: 'string' },
+      limit: { type: 'string' },
+      quiet: { type: 'boolean', default: false },
+      help: { type: 'boolean', short: 'h', default: false },
+    },
+  });
+
+  const command = positionals[0];
+
+  if (values.help || !command) {
+    process.stdout.write(USAGE);
+    return values.help ? 0 : 1;
+  }
+
+  if (command === 'runs') {
+    const config = loadConfig();
+    const db = openDb(config.dbPath);
+    const rows = new RunStore(db).recent(Number(values.limit ?? 20));
+    db.close();
+    if (rows.length === 0) {
+      process.stdout.write('No runs recorded yet.\n');
+      return 0;
+    }
+    for (const r of rows) {
+      const when = new Date(Number(r['started_at'])).toISOString().replace('T', ' ').slice(0, 16);
+      process.stdout.write(
+        `${String(r['id']).padEnd(14)} ${when}  ${String(r['stopped_by'] ?? 'running').padEnd(18)}` +
+          `${usd(Number(r['usd'] ?? 0)).padStart(9)}  ${String(r['question']).slice(0, 60)}\n`,
+      );
+    }
+    return 0;
+  }
+
+  if (command !== 'research') {
+    process.stderr.write(`Unknown command: ${command}\n${USAGE}`);
+    return 1;
+  }
+
+  const question = positionals.slice(1).join(' ').trim();
+  if (!question) {
+    process.stderr.write('A question is required.\n' + USAGE);
+    return 1;
+  }
+
+  const config = loadConfig();
+  if (values.quiet) config.logLevel = 'silent';
+  const log = createLogger(config.logLevel);
+
+  const limits = {
+    ...(values['max-steps'] ? { maxSteps: Number(values['max-steps']) } : {}),
+    ...(values['max-usd'] ? { maxUsd: Number(values['max-usd']) } : {}),
+  };
+
+  const controller = new AbortController();
+  process.once('SIGINT', () => {
+    log.warn('interrupted — wrapping up with what has been gathered');
+    controller.abort();
+  });
+
+  const result = await runResearch({
+    question,
+    config,
+    limits,
+    signal: controller.signal,
+    onEvent: (event) => renderEvent(event, log),
+  });
+
+  if (values.json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    return result.report ? 0 : 2;
+  }
+
+  const markdown = toMarkdown(result);
+  if (values.out) {
+    writeFileSync(values.out, markdown, 'utf8');
+    log.info(log.c.green(`\n→ written to ${values.out}`));
+  } else {
+    process.stdout.write('\n' + markdown);
+  }
+
+  return result.report ? 0 : 2;
+}
+
+function renderEvent(event: RunEvent, log: ReturnType<typeof createLogger>): void {
+  const { c } = log;
+  switch (event.type) {
+    case 'run_start':
+      log.info(`${c.bold('sonde')} ${c.dim(event.runId)}  ${event.question}`);
+      break;
+    case 'phase':
+      log.info(c.dim(`\n── ${event.phase} ─────────────────────────────`));
+      break;
+    case 'tool_start':
+      log.debug(`  → ${event.tool} ${JSON.stringify(event.input).slice(0, 160)}`);
+      break;
+    case 'tool_end':
+      log.info(`  ${c.cyan(event.tool)} ${event.summary} ${c.dim(`${event.ms}ms`)}`);
+      break;
+    case 'step': {
+      const s = event.snapshot;
+      log.debug(
+        `  step ${s.steps}/${s.limits.maxSteps} · ${s.totalTokens.toLocaleString()} tok · ` +
+          `${usd(s.usd)} · ${s.searchCredits} credits`,
+      );
+      break;
+    }
+    case 'warning':
+      log.warn(event.message);
+      break;
+    case 'run_end': {
+      const s = event.result.usage;
+      log.info(
+        c.dim(
+          `\n${s.steps} steps · ${s.totalTokens.toLocaleString()} tokens · ${usd(s.usd)} · ` +
+            `${s.searchCredits} credits · ${(s.elapsedMs / 1000).toFixed(1)}s · stopped: ${event.result.stoppedBy}`,
+        ),
+      );
+      break;
+    }
+  }
+}
+
+function toMarkdown(result: ResearchResult): string {
+  const lines: string[] = [`# ${result.question}`, ''];
+
+  if (!result.report) {
+    lines.push('_No report was produced._', '');
+    if (result.warnings.length) {
+      lines.push('## Warnings', '', ...result.warnings.map((w) => `- ${w}`), '');
+    }
+    if (result.notes) lines.push('## Raw notes', '', result.notes, '');
+    return lines.join('\n');
+  }
+
+  const r = result.report;
+  lines.push(r.summary, '', r.report, '');
+
+  if (r.openQuestions.length) {
+    lines.push('## Open questions', '', ...r.openQuestions.map((q) => `- ${q}`), '');
+  }
+
+  lines.push('## Sources', '');
+  for (const citation of r.citations) {
+    lines.push(`- **${citation.id}** [${citation.title}](${citation.url})`);
+    if (citation.quote) lines.push(`  > ${citation.quote.replace(/\n+/g, ' ')}`);
+  }
+  lines.push('');
+
+  if (result.warnings.length) {
+    lines.push('## Warnings', '', ...result.warnings.map((w) => `- ${w}`), '');
+  }
+
+  const s = result.usage;
+  lines.push(
+    '---',
+    '',
+    `_confidence: ${r.confidence} · ${s.steps} steps · ${s.totalTokens.toLocaleString()} tokens · ` +
+      `${usd(s.usd)} · ${s.searchCredits} search credits · stopped: ${result.stoppedBy}_`,
+    '',
+  );
+
+  return lines.join('\n');
+}
+
+main()
+  .then((code) => process.exit(code))
+  .catch((error: unknown) => {
+    process.stderr.write(`\n${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
