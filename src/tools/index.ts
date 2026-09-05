@@ -11,6 +11,34 @@ import { canonicalizeUrl, dedupeByUrl, isHttpUrl } from "../util/url.js";
 const MAX_CHARS_PER_PAGE = 8_000;
 const MAX_CHARS_PER_CALL = 24_000;
 
+/**
+ * Split the per-call character budget across pages so a late page is never
+ * starved by an early one: everyone gets an equal share first, then whatever
+ * nobody needed is handed back to the pages that are still truncated.
+ */
+export function allocateChars(
+  lengths: number[],
+  total: number = MAX_CHARS_PER_CALL,
+  perPage: number = MAX_CHARS_PER_PAGE,
+): number[] {
+  if (lengths.length === 0) return [];
+
+  const want = lengths.map((n) => Math.min(Math.max(0, n), perPage));
+  const share = Math.floor(total / lengths.length);
+  const given = want.map((n) => Math.min(n, share));
+
+  let leftover = total - given.reduce((sum, n) => sum + n, 0);
+  for (let i = 0; i < given.length && leftover > 0; i += 1) {
+    const gap = (want[i] ?? 0) - (given[i] ?? 0);
+    if (gap <= 0) continue;
+    const give = Math.min(gap, leftover);
+    given[i] = (given[i] ?? 0) + give;
+    leftover -= give;
+  }
+
+  return given;
+}
+
 export interface ToolContext {
   retrieval: Retrieval;
   registry: SourceRegistry;
@@ -152,30 +180,48 @@ export function createTools(ctx: ToolContext) {
           }
         }
 
-        let remaining = MAX_CHARS_PER_CALL;
-        const pages = [...cached, ...fetched].map((page) => {
+        const all = [...cached, ...fetched];
+        const allowances = allocateChars(all.map((page) => page.text.length));
+        const pages: Array<{
+          id: string;
+          url: string;
+          title: string;
+          fromCache: boolean;
+          truncated: boolean;
+          text: string;
+        }> = [];
+
+        all.forEach((page, index) => {
           const ref = ctx.registry.register({
             url: page.url,
             title: page.title ?? page.url,
           });
+          const text = page.text.slice(0, allowances[index] ?? 0);
+
+          // `read: true` is what makes a source citable during synthesis, so a
+          // page whose text never reached the model must not be given it.
+          if (text.length === 0) {
+            failures.push({
+              url: page.url,
+              error:
+                page.text.length === 0
+                  ? "extraction returned no text — nothing here to cite"
+                  : "skipped: per-call character budget spent — read it on its own",
+            });
+            return;
+          }
+
           ctx.registry.markRead(page.url);
           ctx.onSource(ref.id);
 
-          const allowance = Math.max(
-            0,
-            Math.min(MAX_CHARS_PER_PAGE, remaining),
-          );
-          const text = page.text.slice(0, allowance);
-          remaining -= text.length;
-
-          return {
+          pages.push({
             id: ref.id,
             url: page.url,
             title: page.title ?? ref.title,
             fromCache: page.fromCache,
             truncated: text.length < page.text.length,
             text,
-          };
+          });
         });
 
         ctx.emit({

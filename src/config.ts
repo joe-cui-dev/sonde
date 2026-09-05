@@ -12,8 +12,22 @@ function loadDotEnv(): void {
   }
 }
 
+/**
+ * A key left blank in .env (`SONDE_MAX_USD=`) means "use the default", not "0".
+ * Without this, `z.coerce.number()` turns "" into 0 and every budget field
+ * fails its `.positive()` check with an error that reads like a typo.
+ */
+function present(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 const num = (fallback: number) =>
-  z.coerce.number().finite().positive().default(fallback);
+  z.coerce
+    .number()
+    .finite("must be a number")
+    .positive("must be greater than 0")
+    .default(fallback);
 
 const ConfigSchema = z.object({
   openrouterApiKey: z.string().min(1, "OPENROUTER_API_KEY is missing"),
@@ -50,7 +64,10 @@ export function loadConfig(
   overrides: Partial<Record<string, string>> = {},
 ): Config {
   loadDotEnv();
-  const env = { ...process.env, ...overrides };
+  const env: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries({ ...process.env, ...overrides })) {
+    env[key] = present(value);
+  }
 
   const parsed = ConfigSchema.safeParse({
     openrouterApiKey: env.OPENROUTER_API_KEY,

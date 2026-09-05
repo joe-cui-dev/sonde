@@ -155,6 +155,11 @@ export async function runResearch(
   let stoppedBy: StopReason = "complete";
   let notes = "";
 
+  // Each step's prose is kept as it arrives. If the loop later throws — a 429, a
+  // provider 5xx, a context overflow, or the user hitting Ctrl-C — the retrieval
+  // already paid for is still there to synthesise from.
+  const stepTexts: string[] = [];
+
   emit({ type: "phase", phase: "research" });
 
   try {
@@ -164,19 +169,26 @@ export async function runResearch(
       onStepEnd: (event) => {
         budget.countStep();
         budget.addModelUsage(readUsage(event));
+        const text = typeof event.text === "string" ? event.text.trim() : "";
+        if (text) stepTexts.push(text);
         emit({
           type: "step",
           step: budget.snapshot().steps,
-          text: typeof event.text === "string" ? event.text : "",
+          text,
           snapshot: budget.snapshot(),
         });
       },
     });
-    notes = result.text;
+    notes = result.text.trim() || stepTexts.join("\n\n");
   } catch (error) {
     stoppedBy = "error";
     const message = error instanceof Error ? error.message : String(error);
-    warnings.push(`research loop failed: ${message}`);
+    notes = stepTexts.join("\n\n");
+    warnings.push(
+      notes
+        ? `research loop failed after ${stepTexts.length} step(s), synthesising from partial notes: ${message}`
+        : `research loop failed before producing any notes: ${message}`,
+    );
     emit({ type: "warning", message });
     logger.error(message);
   }

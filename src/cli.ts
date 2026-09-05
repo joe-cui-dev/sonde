@@ -5,6 +5,7 @@ import { runResearch } from "./agent/research-agent.js";
 import { loadConfig } from "./config.js";
 import { openDb } from "./store/db.js";
 import { RunStore } from "./store/runs.js";
+import { preflight } from "./preflight.js";
 import { createLogger, usd } from "./util/log.js";
 import type { ResearchResult, RunEvent } from "./types.js";
 
@@ -13,6 +14,7 @@ sonde — a web research agent
 
   sonde research "<question>" [options]
   sonde runs [--limit N]
+  sonde doctor
 
 Options
   -o, --out <file>       write the report to a markdown file
@@ -43,6 +45,27 @@ async function main(): Promise<number> {
   if (values.help || !command) {
     process.stdout.write(USAGE);
     return values.help ? 0 : 1;
+  }
+
+  if (command === "doctor") {
+    const config = loadConfig();
+    const log = createLogger("info");
+    const checks = await preflight(config);
+    for (const check of checks) {
+      const mark = check.ok ? log.c.green("ok  ") : log.c.red("fail");
+      process.stdout.write(
+        `${mark} ${check.name.padEnd(20)} ${check.detail}\n`,
+      );
+    }
+    const failed = checks.filter((c) => !c.ok).length;
+    process.stdout.write(
+      failed === 0
+        ? log.c.green("\nAll checks passed — safe to spend money.\n")
+        : log.c.red(
+            `\n${failed} check(s) failed — fix these before running research.\n`,
+          ),
+    );
+    return failed === 0 ? 0 : 1;
   }
 
   if (command === "runs") {

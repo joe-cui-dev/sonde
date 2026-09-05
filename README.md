@@ -12,6 +12,7 @@ A web research agent in TypeScript.
 ```bash
 npm install
 cp .env.example .env     # then put real keys in .env
+npm run dev -- doctor    # verify keys and models before spending anything
 npm run research "What changed in the EU AI Act's GPAI obligations in 2026?"
 ```
 
@@ -21,8 +22,15 @@ Other commands:
 npm run research "…" -- --out report.md   # write markdown to a file
 npm run research "…" -- --json            # full result as JSON
 npm run dev -- runs                       # list past runs with what each cost
+npm run dev -- doctor                     # preflight: keys, model slugs, credit left
 npm run build && npm start research "…"   # compiled
 ```
+
+`doctor` is worth running after any change to `.env`. It checks the key is
+accepted, that both model slugs exist on OpenRouter, and — the part that is easy
+to get wrong — that the planner supports `tools` and the writer supports
+`structured_outputs`. A model missing either only fails once a run is already
+underway and retrieval has been paid for.
 
 ## How a run works
 
@@ -61,7 +69,8 @@ src/
   store/                sqlite: page cache, run records, event trace
   telemetry/index.ts    AI SDK telemetry integration → sqlite
   util/url.ts           canonicalization + dedupe
-  cli.ts                sonde research / sonde runs
+  preflight.ts          doctor: key, model capability and credit checks
+  cli.ts                sonde research / sonde runs / sonde doctor
 ```
 
 ## Budget gates
@@ -117,8 +126,12 @@ npm test -- --coverage          # write coverage reports to coverage/
 npm run typecheck              # check source and test types
 ```
 
-Tests live in `tests/**/*.test.ts` and cover URL handling, source registration,
-and budget limits without API keys or network calls. Jest uses ts-jest's
+Tests live in `tests/**/*.test.ts` and run without API keys or network calls.
+They cover URL handling, source registration, budget limits, config parsing, the
+`read_pages` character allocator, and a scripted end-to-end `runResearch` — search,
+read, notes, synthesis, citation validation and sqlite persistence — driven by a
+mock model. `tests/helpers/mock.ts` holds the step builders (`calls`, `says`,
+`scriptedModel`) and a fake `Retrieval`. Jest uses ts-jest's
 [ESM preset](https://kulshekhar.github.io/ts-jest/docs/guides/esm-support)
 to match the project's NodeNext modules. Import test helpers from `@jest/globals`
 and keep `.js` extensions on relative source imports, as in the application.

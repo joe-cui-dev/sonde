@@ -3,6 +3,7 @@ export {
   type RunResearchOptions,
 } from "./agent/research-agent.js";
 export { loadConfig, type Config } from "./config.js";
+export { preflight, type Check } from "./preflight.js";
 export { BudgetTracker, BudgetExceededError } from "./budget/budget.js";
 export { SourceRegistry } from "./agent/source-registry.js";
 export { createRetrieval, type Retrieval } from "./providers/index.js";
