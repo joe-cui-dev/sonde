@@ -1,4 +1,4 @@
-export type LogLevel = 'silent' | 'info' | 'debug';
+export type LogLevel = "silent" | "info" | "debug";
 
 const RANK: Record<LogLevel, number> = { silent: 0, info: 1, debug: 2 };
 
@@ -23,10 +23,18 @@ export function createLogger(level: LogLevel): Logger {
   const at = (want: LogLevel) => RANK[level] >= RANK[want];
   return {
     c: C,
-    info: (m) => { if (at('info')) process.stderr.write(m + '\n'); },
-    debug: (m) => { if (at('debug')) process.stderr.write(C.dim(m) + '\n'); },
-    warn: (m) => { if (at('info')) process.stderr.write(C.yellow('! ' + m) + '\n'); },
-    error: (m) => { if (at('info')) process.stderr.write(C.red('✗ ' + m) + '\n'); },
+    info: (m) => {
+      if (at("info")) process.stderr.write(m + "\n");
+    },
+    debug: (m) => {
+      if (at("debug")) process.stderr.write(C.dim(m) + "\n");
+    },
+    warn: (m) => {
+      if (at("info")) process.stderr.write(C.yellow("! " + m) + "\n");
+    },
+    error: (m) => {
+      if (at("info")) process.stderr.write(C.red("✗ " + m) + "\n");
+    },
   };
 }
 

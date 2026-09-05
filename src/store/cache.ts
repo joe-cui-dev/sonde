@@ -1,6 +1,6 @@
-import type { Db } from './db.js';
-import type { FetchedPage } from '../types.js';
-import { canonicalizeUrl } from '../util/url.js';
+import type { Db } from "./db.js";
+import type { FetchedPage } from "../types.js";
+import { canonicalizeUrl } from "../util/url.js";
 
 /**
  * Page cache keyed on the canonical URL. This is the single highest-leverage
@@ -8,13 +8,18 @@ import { canonicalizeUrl } from '../util/url.js';
  * runs and across processes.
  */
 export class PageCache {
-  constructor(private readonly db: Db, private readonly ttlMs: number) {}
+  constructor(
+    private readonly db: Db,
+    private readonly ttlMs: number,
+  ) {}
 
   get(url: string): FetchedPage | null {
     const key = canonicalizeUrl(url);
     const row = this.db
-      .prepare('SELECT url, title, text, fetched_at FROM pages WHERE url = ?')
-      .get(key) as { url: string; title: string | null; text: string; fetched_at: number } | undefined;
+      .prepare("SELECT url, title, text, fetched_at FROM pages WHERE url = ?")
+      .get(key) as
+      | { url: string; title: string | null; text: string; fetched_at: number }
+      | undefined;
 
     if (!row) return null;
     if (Date.now() - row.fetched_at > this.ttlMs) return null;
@@ -40,7 +45,13 @@ export class PageCache {
            fetched_at = excluded.fetched_at,
            bytes = excluded.bytes`,
       )
-      .run(key, page.title, page.text, page.fetchedAt, Buffer.byteLength(page.text));
+      .run(
+        key,
+        page.title,
+        page.text,
+        page.fetchedAt,
+        Buffer.byteLength(page.text),
+      );
   }
 
   /** Split a URL list into what we already have and what we must pay for. */

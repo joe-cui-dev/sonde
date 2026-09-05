@@ -1,5 +1,5 @@
-import type { SearchHit, SourceId, SourceRef } from '../types.js';
-import { canonicalizeUrl } from '../util/url.js';
+import type { SearchHit, SourceId, SourceRef } from "../types.js";
+import { canonicalizeUrl } from "../util/url.js";
 
 /**
  * Assigns every URL the run touches a stable short handle (S1, S2, …) so the
@@ -10,7 +10,12 @@ export class SourceRegistry {
   private readonly byUrl = new Map<string, SourceRef>();
   private counter = 0;
 
-  register(input: { url: string; title: string; score?: number; publishedDate?: string }): SourceRef {
+  register(input: {
+    url: string;
+    title: string;
+    score?: number;
+    publishedDate?: string;
+  }): SourceRef {
     const url = canonicalizeUrl(input.url);
     const existing = this.byUrl.get(url);
     if (existing) {

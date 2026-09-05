@@ -1,5 +1,10 @@
 const TRACKING_PARAMS = [
-  /^utm_/i, /^ga_/i, /^mc_/i, /^pk_/i, /^hsa_/i, /^_hs/i,
+  /^utm_/i,
+  /^ga_/i,
+  /^mc_/i,
+  /^pk_/i,
+  /^hsa_/i,
+  /^_hs/i,
   /^(fbclid|gclid|dclid|gbraid|wbraid|msclkid|yclid|igshid|twclid)$/i,
   /^(ref|ref_src|referrer|source|src)$/i,
   /^(spm|scm|share_source|share_medium)$/i,
@@ -17,11 +22,14 @@ export function canonicalizeUrl(input: string): string {
     return input.trim();
   }
 
-  if (u.protocol === 'http:') u.protocol = 'https:';
-  u.hash = '';
-  u.hostname = u.hostname.toLowerCase().replace(/^www\./, '');
-  if ((u.protocol === 'https:' && u.port === '443') || (u.protocol === 'http:' && u.port === '80')) {
-    u.port = '';
+  if (u.protocol === "http:") u.protocol = "https:";
+  u.hash = "";
+  u.hostname = u.hostname.toLowerCase().replace(/^www\./, "");
+  if (
+    (u.protocol === "https:" && u.port === "443") ||
+    (u.protocol === "http:" && u.port === "80")
+  ) {
+    u.port = "";
   }
 
   const kept: Array<[string, string]> = [];
@@ -30,11 +38,11 @@ export function canonicalizeUrl(input: string): string {
     kept.push([key, value]);
   }
   kept.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  u.search = '';
+  u.search = "";
   for (const [key, value] of kept) u.searchParams.append(key, value);
 
-  if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
-    u.pathname = u.pathname.replace(/\/+$/, '');
+  if (u.pathname.length > 1 && u.pathname.endsWith("/")) {
+    u.pathname = u.pathname.replace(/\/+$/, "");
   }
 
   return u.toString();
@@ -43,7 +51,7 @@ export function canonicalizeUrl(input: string): string {
 export function isHttpUrl(input: string): boolean {
   try {
     const u = new URL(input);
-    return u.protocol === 'https:' || u.protocol === 'http:';
+    return u.protocol === "https:" || u.protocol === "http:";
   } catch {
     return false;
   }
@@ -51,7 +59,7 @@ export function isHttpUrl(input: string): boolean {
 
 export function hostOf(input: string): string {
   try {
-    return new URL(input).hostname.replace(/^www\./, '');
+    return new URL(input).hostname.replace(/^www\./, "");
   } catch {
     return input;
   }

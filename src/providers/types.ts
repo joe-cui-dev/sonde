@@ -1,9 +1,9 @@
-import type { FetchFailure, FetchedPage, SearchHit } from '../types.js';
+import type { FetchFailure, FetchedPage, SearchHit } from "../types.js";
 
 export interface SearchOptions {
   maxResults?: number;
-  topic?: 'general' | 'news' | 'finance';
-  timeRange?: 'day' | 'week' | 'month' | 'year';
+  topic?: "general" | "news" | "finance";
+  timeRange?: "day" | "week" | "month" | "year";
   includeDomains?: string[];
   excludeDomains?: string[];
 }

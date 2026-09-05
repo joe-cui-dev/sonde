@@ -46,18 +46,18 @@ export interface ResearchReport {
   /** Markdown. Claims carry inline [S1] / [S2] markers. */
   report: string;
   citations: Citation[];
-  confidence: 'low' | 'medium' | 'high';
+  confidence: "low" | "medium" | "high";
   openQuestions: string[];
 }
 
 export type StopReason =
-  | 'complete'
-  | 'max_steps'
-  | 'max_usd'
-  | 'max_tokens'
-  | 'max_search_credits'
-  | 'max_wall_ms'
-  | 'error';
+  | "complete"
+  | "max_steps"
+  | "max_usd"
+  | "max_tokens"
+  | "max_search_credits"
+  | "max_wall_ms"
+  | "error";
 
 export interface BudgetLimits {
   maxSteps: number;
@@ -93,12 +93,12 @@ export interface ResearchResult {
 }
 
 export type RunEvent =
-  | { type: 'run_start'; runId: string; question: string }
-  | { type: 'step'; step: number; text: string; snapshot: BudgetSnapshot }
-  | { type: 'tool_start'; tool: string; input: unknown }
-  | { type: 'tool_end'; tool: string; summary: string; ms: number }
-  | { type: 'phase'; phase: 'research' | 'synthesis' }
-  | { type: 'warning'; message: string }
-  | { type: 'run_end'; result: ResearchResult };
+  | { type: "run_start"; runId: string; question: string }
+  | { type: "step"; step: number; text: string; snapshot: BudgetSnapshot }
+  | { type: "tool_start"; tool: string; input: unknown }
+  | { type: "tool_end"; tool: string; summary: string; ms: number }
+  | { type: "phase"; phase: "research" | "synthesis" }
+  | { type: "warning"; message: string }
+  | { type: "run_end"; result: ResearchResult };
 
 export type EventSink = (event: RunEvent) => void;

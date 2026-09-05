@@ -1,9 +1,12 @@
-import type { BudgetLimits, BudgetSnapshot, StopReason } from '../types.js';
+import type { BudgetLimits, BudgetSnapshot, StopReason } from "../types.js";
 
 export class BudgetExceededError extends Error {
-  constructor(public readonly reason: StopReason, public readonly snapshot: BudgetSnapshot) {
+  constructor(
+    public readonly reason: StopReason,
+    public readonly snapshot: BudgetSnapshot,
+  ) {
     super(`Budget exceeded: ${reason}`);
-    this.name = 'BudgetExceededError';
+    this.name = "BudgetExceededError";
   }
 }
 
@@ -30,7 +33,11 @@ export class BudgetTracker {
     this.steps += 1;
   }
 
-  addModelUsage(u: { inputTokens?: number; outputTokens?: number; costUsd?: number }): void {
+  addModelUsage(u: {
+    inputTokens?: number;
+    outputTokens?: number;
+    costUsd?: number;
+  }): void {
     this.inputTokens += u.inputTokens ?? 0;
     this.outputTokens += u.outputTokens ?? 0;
     this.usdSpent += u.costUsd ?? 0;
@@ -42,11 +49,14 @@ export class BudgetTracker {
 
   /** The first limit that has been reached, or null. */
   check(): StopReason | null {
-    if (this.steps >= this.limits.maxSteps) return 'max_steps';
-    if (this.usdSpent >= this.limits.maxUsd) return 'max_usd';
-    if (this.inputTokens + this.outputTokens >= this.limits.maxTokens) return 'max_tokens';
-    if (this.credits >= this.limits.maxSearchCredits) return 'max_search_credits';
-    if (Date.now() - this.startedAt >= this.limits.maxWallMs) return 'max_wall_ms';
+    if (this.steps >= this.limits.maxSteps) return "max_steps";
+    if (this.usdSpent >= this.limits.maxUsd) return "max_usd";
+    if (this.inputTokens + this.outputTokens >= this.limits.maxTokens)
+      return "max_tokens";
+    if (this.credits >= this.limits.maxSearchCredits)
+      return "max_search_credits";
+    if (Date.now() - this.startedAt >= this.limits.maxWallMs)
+      return "max_wall_ms";
     return null;
   }
 
@@ -62,7 +72,8 @@ export class BudgetTracker {
   canRetrieve(reservePct = 0.15): boolean {
     if (this.exhausted) return false;
     const usdLeft = 1 - this.usdSpent / this.limits.maxUsd;
-    const tokLeft = 1 - (this.inputTokens + this.outputTokens) / this.limits.maxTokens;
+    const tokLeft =
+      1 - (this.inputTokens + this.outputTokens) / this.limits.maxTokens;
     const creditLeft = 1 - this.credits / this.limits.maxSearchCredits;
     return Math.min(usdLeft, tokLeft, creditLeft) > reservePct;
   }
@@ -90,6 +101,6 @@ export class BudgetTracker {
       `$${s.usd.toFixed(4)}/$${s.limits.maxUsd}`,
       `${s.searchCredits}/${s.limits.maxSearchCredits} credits`,
       `${(s.elapsedMs / 1000).toFixed(1)}s`,
-    ].join(' · ');
+    ].join(" · ");
   }
 }

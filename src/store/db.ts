@@ -1,6 +1,6 @@
-import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { DatabaseSync } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;

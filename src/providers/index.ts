@@ -1,6 +1,6 @@
-import type { Config } from '../config.js';
-import type { ContentFetcher, SearchProvider } from './types.js';
-import { TavilyProvider } from './tavily.js';
+import type { Config } from "../config.js";
+import type { ContentFetcher, SearchProvider } from "./types.js";
+import { TavilyProvider } from "./tavily.js";
 
 export interface Retrieval {
   searcher: SearchProvider;
@@ -14,7 +14,7 @@ export interface Retrieval {
  */
 export function createRetrieval(config: Config): Retrieval {
   switch (config.searchProvider) {
-    case 'tavily': {
+    case "tavily": {
       const tavily = new TavilyProvider({
         apiKey: config.tavilyApiKey,
         searchDepth: config.searchDepth,
@@ -29,4 +29,4 @@ export function createRetrieval(config: Config): Retrieval {
   }
 }
 
-export type { ContentFetcher, SearchProvider } from './types.js';
+export type { ContentFetcher, SearchProvider } from "./types.js";

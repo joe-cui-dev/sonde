@@ -1,18 +1,25 @@
-import type { Db } from './db.js';
-import type { BudgetSnapshot, ResearchReport, SourceRef, StopReason } from '../types.js';
+import type { Db } from "./db.js";
+import type {
+  BudgetSnapshot,
+  ResearchReport,
+  SourceRef,
+  StopReason,
+} from "../types.js";
 
 export class RunStore {
   constructor(private readonly db: Db) {}
 
   start(runId: string, question: string): void {
     this.db
-      .prepare('INSERT INTO runs (id, question, started_at) VALUES (?, ?, ?)')
+      .prepare("INSERT INTO runs (id, question, started_at) VALUES (?, ?, ?)")
       .run(runId, question, Date.now());
   }
 
   event(runId: string, type: string, payload: unknown): void {
     this.db
-      .prepare('INSERT INTO run_events (run_id, ts, type, payload) VALUES (?, ?, ?, ?)')
+      .prepare(
+        "INSERT INTO run_events (run_id, ts, type, payload) VALUES (?, ?, ?, ?)",
+      )
       .run(runId, Date.now(), type, safeJson(payload));
   }
 
@@ -73,8 +80,8 @@ export class RunStore {
 
 function safeJson(value: unknown): string {
   try {
-    return JSON.stringify(value) ?? 'null';
+    return JSON.stringify(value) ?? "null";
   } catch {
-    return JSON.stringify({ error: 'unserializable' });
+    return JSON.stringify({ error: "unserializable" });
   }
 }

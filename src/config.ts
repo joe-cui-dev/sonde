@@ -1,9 +1,9 @@
-import { z } from 'zod';
-import type { LogLevel } from './util/log.js';
+import { z } from "zod";
+import type { LogLevel } from "./util/log.js";
 
 /** Node 22 reads .env natively — no dotenv dependency. */
 function loadDotEnv(): void {
-  for (const file of ['.env.local', '.env']) {
+  for (const file of [".env.local", ".env"]) {
     try {
       process.loadEnvFile(file);
     } catch {
@@ -16,11 +16,11 @@ const num = (fallback: number) =>
   z.coerce.number().finite().positive().default(fallback);
 
 const ConfigSchema = z.object({
-  openrouterApiKey: z.string().min(1, 'OPENROUTER_API_KEY is missing'),
-  tavilyApiKey: z.string().min(1, 'TAVILY_API_KEY is missing'),
+  openrouterApiKey: z.string().min(1, "OPENROUTER_API_KEY is missing"),
+  tavilyApiKey: z.string().min(1, "TAVILY_API_KEY is missing"),
 
-  plannerModel: z.string().default('anthropic/claude-sonnet-4.5'),
-  writerModel: z.string().default('anthropic/claude-sonnet-4.5'),
+  plannerModel: z.string().default("z-ai/glm-5.3-flash"),
+  writerModel: z.string().default("z-ai/glm-5.3-flash"),
 
   maxSteps: num(16),
   maxUsd: num(1),
@@ -28,23 +28,27 @@ const ConfigSchema = z.object({
   maxSearchCredits: num(60),
   maxWallMs: num(300_000),
 
-  searchProvider: z.enum(['tavily']).default('tavily'),
-  searchDepth: z.enum(['basic', 'advanced', 'fast', 'ultra-fast']).default('advanced'),
-  extractDepth: z.enum(['basic', 'advanced']).default('basic'),
+  searchProvider: z.enum(["tavily"]).default("tavily"),
+  searchDepth: z
+    .enum(["basic", "advanced", "fast", "ultra-fast"])
+    .default("advanced"),
+  extractDepth: z.enum(["basic", "advanced"]).default("basic"),
 
-  dbPath: z.string().default('.sonde/sonde.db'),
+  dbPath: z.string().default(".sonde/sonde.db"),
   cacheTtlHours: num(168),
 
-  logLevel: z.enum(['silent', 'info', 'debug']).default('info'),
-  appUrl: z.string().default('https://github.com/sonde'),
-  appTitle: z.string().default('Sonde'),
+  logLevel: z.enum(["silent", "info", "debug"]).default("info"),
+  appUrl: z.string().default("https://github.com/sonde"),
+  appTitle: z.string().default("Sonde"),
 });
 
 export type Config = z.infer<typeof ConfigSchema> & { logLevel: LogLevel };
 
 const PLACEHOLDER = /REPLACE_ME/i;
 
-export function loadConfig(overrides: Partial<Record<string, string>> = {}): Config {
+export function loadConfig(
+  overrides: Partial<Record<string, string>> = {},
+): Config {
   loadDotEnv();
   const env = { ...process.env, ...overrides };
 
@@ -70,19 +74,23 @@ export function loadConfig(overrides: Partial<Record<string, string>> = {}): Con
 
   if (!parsed.success) {
     const issues = parsed.error.issues
-      .map((i) => `  • ${i.path.join('.') || '(root)'}: ${i.message}`)
-      .join('\n');
-    throw new Error(`Invalid configuration:\n${issues}\n\nCopy .env.example to .env and fill it in.`);
+      .map((i) => `  • ${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("\n");
+    throw new Error(
+      `Invalid configuration:\n${issues}\n\nCopy .env.example to .env and fill it in.`,
+    );
   }
 
   const config = parsed.data as Config;
 
   for (const [name, value] of [
-    ['OPENROUTER_API_KEY', config.openrouterApiKey],
-    ['TAVILY_API_KEY', config.tavilyApiKey],
+    ["OPENROUTER_API_KEY", config.openrouterApiKey],
+    ["TAVILY_API_KEY", config.tavilyApiKey],
   ] as const) {
     if (PLACEHOLDER.test(value)) {
-      throw new Error(`${name} is still the placeholder from .env.example — put a real key in .env.`);
+      throw new Error(
+        `${name} is still the placeholder from .env.example — put a real key in .env.`,
+      );
     }
   }
 

@@ -69,13 +69,13 @@ src/
 A run stops at the first limit it reaches and still produces a report from what
 it gathered. Configure in `.env`:
 
-| Variable | Default | Guards against |
-|---|---|---|
-| `SONDE_MAX_STEPS` | 16 | infinite tool loops |
-| `SONDE_MAX_USD` | 1.00 | runaway model spend |
-| `SONDE_MAX_TOKENS` | 400000 | context/token blowup |
-| `SONDE_MAX_SEARCH_CREDITS` | 60 | Tavily credit burn |
-| `SONDE_MAX_WALL_MS` | 300000 | hung runs |
+| Variable                   | Default | Guards against       |
+| -------------------------- | ------- | -------------------- |
+| `SONDE_MAX_STEPS`          | 16      | infinite tool loops  |
+| `SONDE_MAX_USD`            | 1.00    | runaway model spend  |
+| `SONDE_MAX_TOKENS`         | 400000  | context/token blowup |
+| `SONDE_MAX_SEARCH_CREDITS` | 60      | Tavily credit burn   |
+| `SONDE_MAX_WALL_MS`        | 300000  | hung runs            |
 
 Dollars are real, not estimated: the OpenRouter models are created with
 `usage: { include: true }`, so each response carries its actual cost.
@@ -127,8 +127,8 @@ and keep `.js` extensions on relative source imports, as in the application.
 
 ```ts
 await runResearch({
-  question: '…',
-  models: { planner: mockModel, writer: mockModel },  // ai/test → MockLanguageModelV4
+  question: "…",
+  models: { planner: mockModel, writer: mockModel }, // ai/test → MockLanguageModelV4
   retrieval: { searcher: stub, fetcher: stub },
 });
 ```

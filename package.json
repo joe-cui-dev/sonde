@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "description": "A web research agent: AI SDK orchestration, OpenRouter reasoning, Tavily retrieval.",
-  "engines": { "node": ">=22.12" },
+  "engines": {
+    "node": ">=22.12"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": { "sonde": "./dist/cli.js" },
+  "bin": {
+    "sonde": "./dist/cli.js"
+  },
   "scripts": {
     "dev": "tsx --disable-warning=ExperimentalWarning src/cli.ts",
     "research": "tsx --disable-warning=ExperimentalWarning src/cli.ts research",

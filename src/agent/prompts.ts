@@ -1,4 +1,4 @@
-import type { SourceRef } from '../types.js';
+import type { SourceRef } from "../types.js";
 
 export const RESEARCH_INSTRUCTIONS = `You are Sonde, a web research agent. Your job is to answer a question with evidence you actually retrieved, and to be honest about the limits of that evidence.
 
@@ -27,9 +27,12 @@ export function synthesisPrompt(args: {
 }): string {
   const catalogue = args.sources.length
     ? args.sources
-        .map((s) => `${s.id}\t${s.title}\n\t${s.url}${s.publishedDate ? `\n\tpublished: ${s.publishedDate}` : ''}`)
-        .join('\n')
-    : '(none — no source was successfully read)';
+        .map(
+          (s) =>
+            `${s.id}\t${s.title}\n\t${s.url}${s.publishedDate ? `\n\tpublished: ${s.publishedDate}` : ""}`,
+        )
+        .join("\n")
+    : "(none — no source was successfully read)";
 
   return `Write the final report for this research question.
 
@@ -37,14 +40,14 @@ QUESTION
 ${args.question}
 
 RESEARCH NOTES
-${args.notes || '(the research loop produced no notes)'}
+${args.notes || "(the research loop produced no notes)"}
 
 SOURCES YOU MAY CITE — these are the only pages that were actually read.
 ${catalogue}
 ${
   args.degraded
-    ? '\nNOTE: this run stopped early because it hit a budget limit. The evidence is incomplete. Say so plainly in the summary and lower your confidence accordingly.\n'
-    : ''
+    ? "\nNOTE: this run stopped early because it hit a budget limit. The evidence is incomplete. Say so plainly in the summary and lower your confidence accordingly.\n"
+    : ""
 }
 Requirements:
 - Mark every factual claim with the id of the source that supports it, inline, like [S3]. A claim with no marker must be labelled as inference or removed.
