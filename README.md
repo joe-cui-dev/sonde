@@ -110,6 +110,19 @@ add Langfuse or Braintrust, put their integration alongside this one in the
 
 ## Testing without spending money
 
+```bash
+npm test                       # run Jest unit tests
+npm test -- --watch             # rerun affected tests while editing
+npm test -- --coverage          # write coverage reports to coverage/
+npm run typecheck              # check source and test types
+```
+
+Tests live in `tests/**/*.test.ts` and cover URL handling, source registration,
+and budget limits without API keys or network calls. Jest uses ts-jest's
+[ESM preset](https://kulshekhar.github.io/ts-jest/docs/guides/esm-support)
+to match the project's NodeNext modules. Import test helpers from `@jest/globals`
+and keep `.js` extensions on relative source imports, as in the application.
+
 `runResearch` accepts injection seams:
 
 ```ts

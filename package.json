@@ -13,7 +13,8 @@
     "research": "tsx --disable-warning=ExperimentalWarning src/cli.ts research",
     "build": "tsc -p tsconfig.json",
     "start": "node --disable-warning=ExperimentalWarning dist/cli.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^3.0.0",
@@ -22,7 +23,10 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@jest/globals": "^30.5.1",
     "@types/node": "^22.18.0",
+    "jest": "^30.5.1",
+    "ts-jest": "^29.4.12",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }
