@@ -4,6 +4,7 @@ import {
   generateText,
   Output,
   stepCountIs,
+  streamText,
   ToolLoopAgent,
   type LanguageModel,
 } from "ai";
@@ -26,6 +27,7 @@ import type {
   EventSink,
   ResearchReport,
   ResearchResult,
+  ReportPreview,
   RunEvent,
   SourceEvidence,
   SourceRef,
@@ -105,7 +107,12 @@ export async function runResearch(
   store.start(runId, question);
 
   const emit: EventSink = (event: RunEvent) => {
-    if (event.type !== "run_end") store.event(runId, event.type, event);
+    // Preview updates are deliberately transient. They are useful to a live
+    // caller but have not passed schema or citation validation, so replaying
+    // them from SQLite would make them look like durable run facts.
+    if (event.type !== "run_end" && event.type !== "report_preview") {
+      store.event(runId, event.type, event);
+    }
     options.onEvent?.(event);
   };
 
@@ -285,7 +292,7 @@ export async function runResearch(
       : deadline;
 
     try {
-      const synthesis = await generateText({
+      const synthesis = streamText({
         model: writerModel,
         output: Output.object({ schema: ReportSchema }),
         prompt: synthesisPrompt({
@@ -303,10 +310,52 @@ export async function runResearch(
         },
       });
 
-      budget.addModelUsage(readUsage(synthesis));
+      let usageRecorded = false;
+      const settleTerminalResults = async () => {
+        const [output, usage, providerMetadata] = await Promise.allSettled([
+          synthesis.output,
+          synthesis.usage,
+          synthesis.providerMetadata,
+        ]);
+        if (!usageRecorded && usage.status === "fulfilled") {
+          usageRecorded = true;
+          budget.addModelUsage(
+            readUsage({
+              usage: usage.value,
+              providerMetadata:
+                providerMetadata.status === "fulfilled"
+                  ? providerMetadata.value
+                  : undefined,
+            }),
+          );
+        }
+        if (output.status === "rejected") throw output.reason;
+        return output.value;
+      };
+
+      let output: ResearchReport;
+      try {
+        // `partialOutputStream` carries parsed, cumulative snapshots. In
+        // particular, do not derive this from text deltas: the raw text is JSON
+        // and can be temporarily invalid while a string is being completed.
+        for await (const partial of synthesis.partialOutputStream) {
+          const preview = previewFromPartial(partial);
+          if (preview) emit({ type: "report_preview", preview });
+        }
+        output = await settleTerminalResults();
+      } catch (error) {
+        // Consume terminal promises even after a stream error. This both avoids
+        // unhandled rejections and records any usage the provider did return.
+        try {
+          await settleTerminalResults();
+        } catch {
+          // The original stream error is generally the clearest failure cause.
+        }
+        throw error;
+      }
 
       const validated = validateCitations(
-        synthesis.output,
+        output,
         registry,
         evidence,
       );
@@ -348,6 +397,22 @@ export async function runResearch(
   db.close();
 
   return result;
+}
+
+/** Pull the readable report fields out of a schema-derived partial snapshot. */
+function previewFromPartial(partial: unknown): ReportPreview | null {
+  if (!partial || typeof partial !== "object") return null;
+  const candidate = partial as Record<string, unknown>;
+  const preview: ReportPreview = {};
+  if (typeof candidate["summary"] === "string") {
+    preview.summary = candidate["summary"];
+  }
+  if (typeof candidate["report"] === "string") {
+    preview.report = candidate["report"];
+  }
+  return preview.summary !== undefined || preview.report !== undefined
+    ? preview
+    : null;
 }
 
 /**

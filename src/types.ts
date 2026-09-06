@@ -103,12 +103,22 @@ export interface ResearchResult {
   warnings: string[];
 }
 
+/**
+ * An incomplete, transient view of the report while synthesis is running.
+ * It has not passed complete schema or citation validation.
+ */
+export interface ReportPreview {
+  summary?: string;
+  report?: string;
+}
+
 export type RunEvent =
   | { type: "run_start"; runId: string; question: string }
   | { type: "step"; step: number; text: string; snapshot: BudgetSnapshot }
   | { type: "tool_start"; tool: string; input: unknown }
   | { type: "tool_end"; tool: string; summary: string; ms: number }
   | { type: "phase"; phase: "research" | "synthesis" }
+  | { type: "report_preview"; preview: ReportPreview }
   | { type: "warning"; message: string }
   | { type: "run_end"; result: ResearchResult };
 

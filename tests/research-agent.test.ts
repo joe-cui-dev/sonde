@@ -15,6 +15,7 @@ import {
   hangingModel,
   says,
   scriptedModel,
+  streamedModel,
   testConfig,
   type FakePage,
 } from "./helpers/mock.js";
@@ -73,6 +74,31 @@ function healthyPlanner() {
 }
 
 describe("runResearch (offline)", () => {
+  test("emits transient synthesis previews before the validated final report", async () => {
+    const events: RunEvent[] = [];
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: testConfig(dbPath),
+      retrieval: fakeRetrieval(PAGES),
+      models: { planner: healthyPlanner(), writer: streamedModel(REPORT) },
+      onEvent: (event) => events.push(event),
+    });
+
+    const previewIndex = events.findIndex((event) => event.type === "report_preview");
+    const endIndex = events.findIndex((event) => event.type === "run_end");
+    expect(previewIndex).toBeGreaterThan(-1);
+    expect(previewIndex).toBeLessThan(endIndex);
+    expect(result.report?.report).toContain("42 requests per second");
+
+    const db = openDb(dbPath);
+    const storedTypes = db
+      .prepare("SELECT type FROM run_events WHERE run_id = ?")
+      .all(result.runId) as Array<{ type: string }>;
+    db.close();
+    expect(storedTypes.map((row) => row.type)).not.toContain("report_preview");
+  });
+
   test("searches, reads, and synthesises a cited report", async () => {
     const retrieval = fakeRetrieval(PAGES);
     const events: RunEvent[] = [];

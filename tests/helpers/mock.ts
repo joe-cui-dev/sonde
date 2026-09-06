@@ -61,18 +61,42 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
   // What each call was told about tool use. A mock cannot be made to obey
   // toolChoice, but a test can still check the instruction reached the model.
   const toolChoices: Array<string | undefined> = [];
+  const next = (options: { prompt?: unknown; toolChoice?: { type?: string } }) => {
+    prompts.push(flattenPrompt(options.prompt));
+    toolChoices.push(options.toolChoice?.type);
+    const step = steps[index];
+    index += 1;
+    if (step === undefined) throw new Error(`mock model ran out of steps at ${index}`);
+    if (step instanceof Error) throw step;
+    return step;
+  };
   const model = new MockLanguageModelV4({
     modelId: "mock/planner",
-    doGenerate: async (options) => {
-      prompts.push(flattenPrompt(options.prompt));
-      const choice = (options as { toolChoice?: { type?: string } }).toolChoice;
-      toolChoices.push(choice?.type);
-      const step = steps[index];
-      index += 1;
-      if (step === undefined)
-        throw new Error(`mock model ran out of steps at ${index}`);
-      if (step instanceof Error) throw step;
-      return step;
+    doGenerate: async (options) => next(options),
+    doStream: async (options) => {
+      const step = next(options);
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: step.warnings });
+            let id = 0;
+            for (const part of step.content) {
+              if (part.type !== "text") continue;
+              controller.enqueue({ type: "text-start", id: String(id) });
+              controller.enqueue({ type: "text-delta", id: String(id), delta: part.text });
+              controller.enqueue({ type: "text-end", id: String(id) });
+              id += 1;
+            }
+            controller.enqueue({
+              type: "finish",
+              finishReason: step.finishReason,
+              usage: step.usage,
+              providerMetadata: step.providerMetadata,
+            });
+            controller.close();
+          },
+        }),
+      };
     },
   });
   return Object.assign(model, {
@@ -89,15 +113,43 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
  * to prove a deadline is actually wired to the request.
  */
 export function hangingModel() {
+  const waitForAbort = ({ abortSignal }: { abortSignal?: AbortSignal }) =>
+    new Promise<never>((_, reject) => {
+      const fail = () => reject(abortSignal?.reason ?? new Error("aborted"));
+      if (abortSignal?.aborted) fail();
+      else abortSignal?.addEventListener("abort", fail, { once: true });
+    });
   return new MockLanguageModelV4({
     modelId: "mock/hanging",
-    doGenerate: ({ abortSignal }) =>
-      new Promise<GenerateResult>((_, reject) => {
-        const fail = () =>
-          reject(abortSignal?.reason ?? new Error("aborted"));
-        if (abortSignal?.aborted) fail();
-        else abortSignal?.addEventListener("abort", fail);
+    doGenerate: waitForAbort,
+    doStream: waitForAbort,
+  });
+}
+
+/** A writer response delivered as JSON text chunks for `streamText` tests. */
+export function streamedModel(value: unknown, costUsd = 0.001) {
+  const text = JSON.stringify(value);
+  const midpoint = Math.max(1, Math.floor(text.length / 2));
+  return new MockLanguageModelV4({
+    modelId: "mock/writer",
+    doStream: {
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] });
+          controller.enqueue({ type: "text-start", id: "report" });
+          controller.enqueue({ type: "text-delta", id: "report", delta: text.slice(0, midpoint) });
+          controller.enqueue({ type: "text-delta", id: "report", delta: text.slice(midpoint) });
+          controller.enqueue({ type: "text-end", id: "report" });
+          controller.enqueue({
+            type: "finish",
+            finishReason: { unified: "stop", raw: "stop" },
+            usage: usage(),
+            providerMetadata: { openrouter: { usage: { cost: costUsd } } },
+          });
+          controller.close();
+        },
       }),
+    },
   });
 }
 

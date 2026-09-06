@@ -7,6 +7,7 @@ import { openDb } from "./store/db.js";
 import { RunStore } from "./store/runs.js";
 import { preflight } from "./preflight.js";
 import { createLogger, usd } from "./util/log.js";
+import { ReportPreviewRenderer } from "./cli-preview.js";
 import type { ResearchResult, RunEvent } from "./types.js";
 
 const USAGE = `
@@ -104,6 +105,7 @@ async function main(): Promise<number> {
   const config = loadConfig();
   if (values.quiet) config.logLevel = "silent";
   const log = createLogger(config.logLevel);
+  const preview = new ReportPreviewRenderer(process.stderr);
 
   const limits = {
     ...(values["max-steps"] ? { maxSteps: Number(values["max-steps"]) } : {}),
@@ -121,20 +123,49 @@ async function main(): Promise<number> {
     config,
     limits,
     signal: controller.signal,
-    onEvent: (event) => renderEvent(event, log),
+    onEvent: (event) => {
+      if (!values.quiet && event.type === "phase" && event.phase === "synthesis") {
+        preview.start();
+      }
+      if (!values.quiet && event.type === "report_preview") {
+        preview.update(event.preview);
+      }
+      renderEvent(event, log);
+    },
   });
 
   if (values.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    try {
+      await writeStdout(JSON.stringify(result, null, 2) + "\n");
+      if (result.report) preview.complete();
+      else preview.fail(lastWarning(result));
+    } catch (error) {
+      preview.fail(errorMessage(error));
+      throw error;
+    }
     return result.report ? 0 : 2;
   }
 
   const markdown = toMarkdown(result);
   if (values.out) {
-    writeFileSync(values.out, markdown, "utf8");
-    log.info(log.c.green(`\n→ written to ${values.out}`));
+    try {
+      writeFileSync(values.out, markdown, "utf8");
+      log.info(log.c.green(`\n→ written to ${values.out}`));
+      if (result.report) preview.complete();
+      else preview.fail(lastWarning(result));
+    } catch (error) {
+      preview.fail(errorMessage(error));
+      throw error;
+    }
   } else {
-    process.stdout.write("\n" + markdown);
+    try {
+      await writeStdout("\n" + markdown);
+      if (result.report) preview.complete();
+      else preview.fail(lastWarning(result));
+    } catch (error) {
+      preview.fail(errorMessage(error));
+      throw error;
+    }
   }
 
   return result.report ? 0 : 2;
@@ -151,6 +182,10 @@ function renderEvent(
       break;
     case "phase":
       log.info(c.dim(`\n── ${event.phase} ─────────────────────────────`));
+      break;
+    case "report_preview":
+      // The renderer owns interactive preview output. It is intentionally not
+      // passed through the logger, which may be configured for a pipe.
       break;
     case "tool_start":
       log.debug(
@@ -184,6 +219,20 @@ function renderEvent(
       break;
     }
   }
+}
+
+function writeStdout(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(text, (error) => (error ? reject(error) : resolve()));
+  });
+}
+
+function lastWarning(result: ResearchResult): string {
+  return result.warnings.at(-1) ?? "no final report was produced";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function toMarkdown(result: ResearchResult): string {
@@ -240,10 +289,12 @@ function toMarkdown(result: ResearchResult): string {
 }
 
 main()
-  .then((code) => process.exit(code))
+  .then((code) => {
+    process.exitCode = code;
+  })
   .catch((error: unknown) => {
     process.stderr.write(
       `\n${error instanceof Error ? error.message : String(error)}\n`,
     );
-    process.exit(1);
+    process.exitCode = 1;
   });

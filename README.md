@@ -149,6 +149,19 @@ await runResearch({
 Note the v4 model spec nests both fields: `finishReason: { unified: 'tool-calls' }`
 and `usage: { inputTokens: { total: n }, outputTokens: { total: n } }`.
 
+## Streaming synthesis previews
+
+During synthesis, an interactive terminal shows a transient report preview on
+stderr. It is labelled as in progress and unvalidated; only the complete,
+schema- and citation-validated report is written to stdout or `--out`. `--json`,
+`--out`, pipes, and `--quiet` keep stdout machine-readable. If synthesis or
+final delivery fails, any preview text already shown remains visible and is
+marked incomplete rather than being presented as a final report.
+
+Library consumers can observe transient `{ type: "report_preview" }` events
+through `RunResearchOptions.onEvent`. These events are not stored in SQLite and
+are not replayable run history.
+
 ## Not built yet
 
 Deliberately out of scope for this skeleton, roughly in order of value:
