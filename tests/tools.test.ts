@@ -90,7 +90,7 @@ describe("read_pages", () => {
       { urls: bigPages.map((p) => p.url) },
       { toolCallId: "t1", messages: [] } as never,
     )) as {
-      pages: Array<{ id: string; text: string; truncated: boolean }>;
+      pages: Array<{ citeAs: string; text: string; truncated: boolean }>;
       failures: Array<{ url: string; error: string }>;
     };
 
@@ -257,5 +257,106 @@ describe("the final-step reserve", () => {
     expect(result.pages?.[0]?.fromCache).toBe(true);
     expect(retrieval.fetches).toHaveLength(1); // no second network call
     expect(registry.read()).toHaveLength(1);
+  });
+});
+
+describe("citable ids", () => {
+  let dir: string;
+  let db: Db;
+
+  const page: FakePage = {
+    url: "https://example.test/spec",
+    title: "The Spec",
+    text: "The limit is 42 requests per second.",
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sonde-ids-"));
+    db = openDb(join(dir, "test.db"));
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function context() {
+    const registry = new SourceRegistry();
+    return {
+      registry,
+      tools: createTools({
+        retrieval: fakeRetrieval([page]),
+        registry,
+        cache: new PageCache(db, 3_600_000),
+        budget: new BudgetTracker(LIMITS),
+        emit: () => {},
+        onSource: () => {},
+        onRefusal: () => {},
+      }),
+    };
+  }
+
+  const runOpts = { toolCallId: "t1", messages: [] } as never;
+  const search = {
+    query: "rate limit",
+    topic: "general" as const,
+    maxResults: 5,
+  };
+
+  type SearchOut = {
+    results: Array<{ url: string; citeAs: string | null }>;
+    note: string;
+  };
+
+  test("a search result the model has not read carries no id", async () => {
+    const { tools } = context();
+
+    const out = (await tools.web_search.execute!(search, runOpts)) as SearchOut;
+
+    expect(out.results).toHaveLength(1);
+    expect(out.results[0]!.citeAs).toBeNull();
+    expect(out.results[0]!.url).toBe(page.url);
+    // Nothing in the payload the model could copy into a "[S1]" marker.
+    expect(JSON.stringify(out.results)).not.toMatch(/S\d/);
+    expect(out.note).toContain("cannot be cited");
+  });
+
+  test("reading a page is what mints its id", async () => {
+    const { registry, tools } = context();
+    await tools.web_search.execute!(search, runOpts);
+
+    const out = (await tools.read_pages.execute!(
+      { urls: [page.url] },
+      runOpts,
+    )) as { pages: Array<{ citeAs: string; url: string }> };
+
+    expect(out.pages[0]!.citeAs).toBe("S1");
+    expect(registry.byId("S1")!.read).toBe(true);
+  });
+
+  test("a later search surfaces the id of a page already read", async () => {
+    const { tools } = context();
+    await tools.web_search.execute!(search, runOpts);
+    await tools.read_pages.execute!({ urls: [page.url] }, runOpts);
+
+    const out = (await tools.web_search.execute!(
+      { ...search, query: "rate limit again" },
+      runOpts,
+    )) as SearchOut;
+
+    // Now it has text behind it, so the id appears and it can be cited.
+    expect(out.results[0]!.citeAs).toBe("S1");
+  });
+
+  test("still records what was found but not read, for the run record", async () => {
+    const { registry, tools } = context();
+    await tools.web_search.execute!(search, runOpts);
+
+    // The source is tracked and numbered internally — it just has no citable
+    // id until it is read, so the run can still report found-vs-read.
+    expect(registry.all()).toHaveLength(1);
+    expect(registry.all()[0]!.id).toBe("S1");
+    expect(registry.read()).toHaveLength(0);
+    expect(registry.citableId(registry.all()[0]!)).toBeNull();
   });
 });

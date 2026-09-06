@@ -82,8 +82,9 @@ export function createTools(ctx: ToolContext) {
     web_search: tool({
       description:
         "Search the web and get ranked results with short snippets. Snippets are NOT " +
-        "evidence — they tell you which pages are worth reading. Use several narrow, " +
-        "differently-worded queries rather than one broad one.",
+        "evidence — they tell you which pages are worth reading, and they carry no " +
+        "citable id. Use several narrow, differently-worded queries rather than one " +
+        "broad one.",
       inputSchema: z.object({
         query: z
           .string()
@@ -132,12 +133,14 @@ export function createTools(ctx: ToolContext) {
         for (const ref of refs) ctx.onSource(ref.id);
 
         const results = refs.map((ref, i) => ({
-          id: ref.id,
           title: ref.title,
           url: ref.url,
           published: ref.publishedDate ?? null,
-          alreadyRead: ref.read,
           snippet: hits[i]?.snippet ?? "",
+          // Null until the page has been read. A result with no id is a result
+          // you have no way to cite, which is the whole point: a snippet cannot
+          // be laundered into a claim.
+          citeAs: ctx.registry.citableId(ref),
         }));
 
         ctx.emit({
@@ -150,7 +153,10 @@ export function createTools(ctx: ToolContext) {
         return {
           query: input.query,
           results,
-          note: "Call read_pages on the ids worth reading. Never cite a source you have not read.",
+          note:
+            'A result whose citeAs is null cannot be cited. Pass the urls worth ' +
+            "reading to read_pages; that is what gives a source an id and makes " +
+            "it citable.",
         };
       },
     }),
@@ -158,7 +164,8 @@ export function createTools(ctx: ToolContext) {
     read_pages: tool({
       description:
         "Fetch and read the full cleaned text of up to 5 pages. This is the only way to " +
-        "get evidence you may cite. Results are cached, so re-reading a URL is free.",
+        "get evidence you may cite: a page read here comes back with a citeAs id, and " +
+        "nothing else has one. Results are cached, so re-reading a URL is free.",
       inputSchema: z.object({
         urls: z
           .array(z.string())
@@ -211,7 +218,7 @@ export function createTools(ctx: ToolContext) {
         const all = [...cached, ...fetched];
         const allowances = allocateChars(all.map((page) => page.text.length));
         const pages: Array<{
-          id: string;
+          citeAs: string;
           url: string;
           title: string;
           fromCache: boolean;
@@ -243,7 +250,7 @@ export function createTools(ctx: ToolContext) {
           ctx.onSource(ref.id);
 
           pages.push({
-            id: ref.id,
+            citeAs: ref.id,
             url: page.url,
             title: page.title ?? ref.title,
             fromCache: page.fromCache,

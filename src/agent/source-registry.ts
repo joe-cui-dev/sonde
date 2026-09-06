@@ -46,6 +46,18 @@ export class SourceRegistry {
     return ref;
   }
 
+  /**
+   * The handle a source may be cited by, or null while it has not been read.
+   *
+   * Ids are assigned on discovery so the run record can say what was found as
+   * well as what was used — but only a source with text behind it is given one
+   * to the model. Handing an id to a search hit is what let a snippet be cited
+   * as though it were evidence.
+   */
+  citableId(ref: SourceRef): SourceId | null {
+    return ref.read ? ref.id : null;
+  }
+
   byId(id: SourceId): SourceRef | undefined {
     for (const ref of this.byUrl.values()) if (ref.id === id) return ref;
     return undefined;

@@ -470,6 +470,28 @@ describe("runResearch (offline)", () => {
     expect(result.notes).toContain("42 rps");
   });
 
+  test("shows the planner no id it could cite a snippet by", async () => {
+    const planner = healthyPlanner();
+
+    await runResearch({
+      question: "What is the rate limit?",
+      config: testConfig(dbPath),
+      retrieval: fakeRetrieval(PAGES),
+      models: { planner, writer: scriptedModel([says(JSON.stringify(REPORT))]) },
+    });
+
+    // Step 2's prompt carries the search results. Both pages are in there, and
+    // neither has been read, so neither has anything the model could write into
+    // a "[S1]" marker.
+    const afterSearch = planner.prompts[1]!;
+    expect(afterSearch).toContain("https://example.test/spec");
+    expect(afterSearch).toContain('"citeAs":null');
+    expect(afterSearch).not.toContain('"citeAs":"S');
+
+    // Step 3's prompt carries the read page — which does have an id.
+    expect(planner.prompts[2]!).toContain('"citeAs":"S1"');
+  });
+
   test("records the run and its sources in sqlite", async () => {
     const result = await runResearch({
       question: "What is the rate limit?",
