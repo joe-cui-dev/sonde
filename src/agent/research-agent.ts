@@ -364,8 +364,14 @@ export async function runResearch(
       }
 
       const validated = validateCitations(output, registry, evidence);
-      report = validated.report;
       for (const w of validated.warnings) warn(w);
+      if (validated.valid) {
+        report = validated.report;
+      } else {
+        warn(
+          "synthesis output failed citation validation — no report was written",
+        );
+      }
     } catch (error) {
       const message = describeSynthesisFailure(error);
       const outOfTime = deadline.aborted && !options.signal?.aborted;

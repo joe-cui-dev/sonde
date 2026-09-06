@@ -31,18 +31,21 @@ export function quoteAppearsIn(quote: string, sourceText: string): boolean {
  * The mechanical half of "cite your sources". The writer is asked for a verbatim
  * quote per citation precisely so this check is possible: a citation survives
  * only if its source was actually read AND its quote is actually in that
- * source's text. Everything else is dropped and reported, because a citation
- * that cannot be checked is worth less than no citation at all.
+ * source's text. The returned report contains exactly one validated citation
+ * per source marker used across both visible fields. Unused and duplicate
+ * entries are repairable and get dropped; a marker with no validated citation
+ * makes the report invalid because its claim cannot be removed mechanically.
  */
 export function validateCitations(
   report: ResearchReport,
   registry: SourceRegistry,
   evidence: SourceEvidence[],
-): { report: ResearchReport; warnings: string[] } {
+): { report: ResearchReport; warnings: string[]; valid: boolean } {
   const warnings: string[] = [];
   const excerpts = new Map(evidence.map((e) => [e.ref.id, e.excerpt]));
 
   const kept: Citation[] = [];
+  const keptIds = new Set<string>();
   for (const citation of report.citations) {
     const ref = registry.byId(citation.id);
     if (!ref || !ref.read) {
@@ -67,21 +70,43 @@ export function validateCitations(
       continue;
     }
 
+    if (keptIds.has(citation.id)) {
+      warnings.push(
+        `dropped duplicate citation ${citation.id} — list each cited source once`,
+      );
+      continue;
+    }
+
+    keptIds.add(citation.id);
     kept.push({ ...citation, url: ref.url, title: ref.title });
   }
 
-  const validIds = new Set(kept.map((c) => c.id));
-  const reported = new Set<string>();
-  for (const marker of report.report.match(/\[S\d+\]/g) ?? []) {
-    const bare = marker.slice(1, -1);
-    if (validIds.has(bare) || reported.has(bare)) continue;
-    reported.add(bare);
+  // Summary and report are both user-visible claims, so both belong to the
+  // citation contract. Treat repeated markers as one source reference: the
+  // schema calls for one citation entry per source id, not per occurrence.
+  const content = `${report.summary}\n${report.report}`;
+  const markerIds = new Set(
+    (content.match(/\[S\d+\]/g) ?? []).map((marker) => marker.slice(1, -1)),
+  );
+
+  let valid = true;
+  for (const id of markerIds) {
+    if (keptIds.has(id)) continue;
+    valid = false;
     warnings.push(
-      `report cites ${bare}, which is not in the validated citation list`,
+      `report content cites ${id}, which is not in the validated citation list`,
     );
   }
 
-  return { report: { ...report, citations: kept }, warnings };
+  const used = kept.filter((citation) => markerIds.has(citation.id));
+  for (const citation of kept) {
+    if (markerIds.has(citation.id)) continue;
+    warnings.push(
+      `dropped unused citation ${citation.id} — no marker refers to it`,
+    );
+  }
+
+  return { report: { ...report, citations: used }, warnings, valid };
 }
 
 function preview(quote: string, max = 60): string {

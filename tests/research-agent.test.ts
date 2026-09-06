@@ -231,8 +231,11 @@ describe("runResearch (offline)", () => {
       },
     });
 
-    expect(result.report?.citations.map((c) => c.id)).toEqual(["S1"]);
+    expect(result.report).toBeNull();
     expect(result.warnings.join(" ")).toContain("dropped citation S2");
+    expect(result.warnings.join(" ")).toContain(
+      "failed citation validation",
+    );
   });
 
   test("hands the writer the actual page text, not just titles and urls", async () => {
@@ -281,11 +284,34 @@ describe("runResearch (offline)", () => {
       },
     });
 
-    expect(result.report?.citations).toEqual([]);
+    expect(result.report).toBeNull();
     expect(result.warnings.join(" ")).toContain(
       "does not appear in that source's text",
     );
-    expect(result.warnings.join(" ")).toContain("report cites S1");
+    expect(result.warnings.join(" ")).toContain("report content cites S1");
+  });
+
+  test("rejects a report whose summary marker has no validated citation", async () => {
+    const unsupportedSummary = {
+      ...REPORT,
+      summary: "A second source confirms the limit [S2].",
+    };
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: testConfig(dbPath),
+      retrieval: fakeRetrieval(PAGES),
+      models: {
+        planner: healthyPlanner(),
+        writer: scriptedModel([says(JSON.stringify(unsupportedSummary))]),
+      },
+    });
+
+    expect(result.report).toBeNull();
+    expect(result.warnings.join(" ")).toContain("report content cites S2");
+    expect(result.warnings.join(" ")).toContain(
+      "failed citation validation",
+    );
   });
 
   test("keeps a citation quoting the page across markdown emphasis", async () => {

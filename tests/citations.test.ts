@@ -115,7 +115,7 @@ describe("validateCitations", () => {
     expect(warnings[0]).toContain("does not appear in that source's text");
     expect(warnings[0]).toContain("the limit is 9000 rps");
     // The orphaned marker in the body is reported too.
-    expect(warnings.join(" ")).toContain("report cites S1");
+    expect(warnings.join(" ")).toContain("report content cites S1");
   });
 
   /**
@@ -170,7 +170,7 @@ describe("validateCitations", () => {
   });
 
   test("reports each orphaned marker once, however often it appears", () => {
-    const { warnings } = validateCitations(
+    const { warnings, valid } = validateCitations(
       reportWith(
         [{ id: "S1", quote: "invented" }],
         "Claim one [S1]. Claim two [S1]. Claim three [S1].",
@@ -179,8 +179,53 @@ describe("validateCitations", () => {
       evidenceForBoth(),
     );
 
-    expect(warnings.filter((w) => w.includes("report cites S1"))).toHaveLength(
-      1,
+    expect(
+      warnings.filter((w) => w.includes("report content cites S1")),
+    ).toHaveLength(1);
+    expect(valid).toBe(false);
+  });
+
+  test("checks markers in the summary as well as the report body", () => {
+    const input = reportWith([
+      { id: "S1", quote: "42 requests per second" },
+    ]);
+    input.summary = "The spec is corroborated [S2].";
+
+    const { warnings, valid } = validateCitations(
+      input,
+      registryWithBoth(),
+      evidenceForBoth(),
     );
+
+    expect(valid).toBe(false);
+    expect(warnings.join(" ")).toContain("report content cites S2");
+  });
+
+  test("drops citations that have no marker in either visible field", () => {
+    const { report, warnings, valid } = validateCitations(
+      reportWith(
+        [{ id: "S1", quote: "42 requests per second" }],
+        "No sourced claim is present.",
+      ),
+      registryWithBoth(),
+      evidenceForBoth(),
+    );
+
+    expect(valid).toBe(true);
+    expect(report.citations).toEqual([]);
+    expect(warnings.join(" ")).toContain("dropped unused citation S1");
+  });
+
+  test("keeps one validated citation per source id", () => {
+    const citation = { id: "S1", quote: "42 requests per second" };
+    const { report, warnings, valid } = validateCitations(
+      reportWith([citation, citation]),
+      registryWithBoth(),
+      evidenceForBoth(),
+    );
+
+    expect(valid).toBe(true);
+    expect(report.citations.map((c) => c.id)).toEqual(["S1"]);
+    expect(warnings.join(" ")).toContain("dropped duplicate citation S1");
   });
 });
