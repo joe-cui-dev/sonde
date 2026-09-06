@@ -14,6 +14,7 @@ import type {
   WriteResult,
   WriteStyleId,
 } from "../types.js";
+import { countWords } from "./length.js";
 import { writePrompt } from "./prompts.js";
 import { WRITE_STYLES } from "./styles.js";
 
@@ -76,9 +77,9 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
       model,
       prompt: writePrompt({
         brief, draft: options.draft, mode, style: WRITE_STYLES[style],
-        language: options.language, length: options.length ?? DEFAULT_LENGTH,
+        language: options.language, length: options.length,
       }),
-      maxOutputTokens: outputTokenLimit(options.length, mode),
+      maxOutputTokens: outputTokenLimit(options.length, mode, options.draft),
       abortSignal: signal,
       onError: ({ error }) => { streamError ??= error; },
     });
@@ -97,6 +98,16 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     warn(`${stoppedBy === "max_wall_ms" ? "writing ran out of wall-clock budget" : "writing failed"}: ${detail}`);
   }
   const complete = stoppedBy === "complete";
+  if (complete && mode === "expand" && options.length) {
+    const written = countWords(text);
+    if (written < options.length * SHORTFALL_TOLERANCE) {
+      warn(
+        `the expanded passage runs to roughly ${written.toLocaleString()} words, ` +
+          `short of the ${options.length.toLocaleString()} asked for — ` +
+          "expand the saved file again to develop it further",
+      );
+    }
+  }
   const result: WriteResult = {
     runId, mode, brief, text: text || null, complete, style,
     usage: budget.snapshot(), stoppedBy, warnings,
@@ -109,7 +120,37 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
 
 const DEFAULT_LENGTH = 800;
 
-function outputTokenLimit(length: number | undefined, mode: WriteMode): number {
+/**
+ * A floor is a floor, but the measure of what was written is an estimate, and a
+ * run that lands a few percent under it has done what was asked. Only a miss
+ * wide enough to be real is worth putting in front of whoever ran the command.
+ */
+const SHORTFALL_TOLERANCE = 0.9;
+
+/**
+ * Generous by design: a ceiling that stops a runaway, not a target. Cutting a
+ * piece off mid-sentence wastes everything already paid for, so the estimate
+ * leans high — two tokens per requested word, which covers CJK prose where a
+ * "word" is a character that costs roughly a token of its own.
+ */
+const TOKENS_PER_WORD = 2;
+
+/**
+ * Continue hands the draft back inside the finished piece, so its ceiling has
+ * to pay for the draft as well as for the new prose. New and expand both return
+ * new writing only.
+ */
+function outputTokenLimit(
+  length: number | undefined,
+  mode: WriteMode,
+  draft?: string,
+): number {
   const target = length ?? DEFAULT_LENGTH;
-  return Math.max(128, Math.ceil(mode === "expand" ? target * 800 : target * 1.5));
+  const carried = mode === "continue" ? estimateTokens(draft ?? "") : 0;
+  return Math.max(128, Math.ceil(target * TOKENS_PER_WORD + carried));
+}
+
+/** An upper bound, not a measure: CJK text runs near a token per character. */
+function estimateTokens(text: string): number {
+  return text.length;
 }

@@ -8,6 +8,9 @@ import { loadConfig } from "../src/config.js";
 import { openDb } from "../src/store/db.js";
 import { RunStore } from "../src/store/runs.js";
 import { runWrite } from "../src/writing/write-agent.js";
+import { writePrompt } from "../src/writing/prompts.js";
+import { countWords } from "../src/writing/length.js";
+import { WRITE_STYLES } from "../src/writing/styles.js";
 import { archivePath, saveProse } from "../src/writing/archive.js";
 import { erroringStreamModel, says, scriptedModel, testConfig } from "./helpers/mock.js";
 
@@ -54,6 +57,105 @@ describe("writing workflow seams", () => {
     const path = join(mkdtempSync(join(tmpdir(), "sonde-archive-")), "deep", "piece.md");
     saveProse(path, "The tide came in.");
     expect(readFileSync(path, "utf8")).toBe("The tide came in.\n");
+  });
+
+  test("asks expand for the named passage alone, with the draft as context only", async () => {
+    const model = scriptedModel([says("The storm scene, opened up.")]);
+    await runWrite({
+      brief: "详细展开描写原文中的暴风雨那一段",
+      draft: "They set out. A storm came. They arrived.",
+      mode: "expand",
+      length: 3000,
+      config: testConfig(databasePath()),
+      model,
+    });
+    const prompt = model.prompts[0]!;
+    expect(prompt).toContain("Expand one part of the draft, not the draft as a whole");
+    expect(prompt).toContain("Return the new passage and nothing else");
+    expect(prompt).toContain("do not reproduce it");
+    // The floor is the passage, which is now the whole of what comes back.
+    expect(prompt).toContain("The passage must run to at least 3000 words");
+    expect(prompt).toContain("详细展开描写原文中的暴风雨那一段");
+    // Context, not output: the writer still needs to see the draft to know what
+    // it is opening up and where the passage sits.
+    expect(prompt).toContain("They set out. A storm came. They arrived.");
+    expect(prompt).not.toContain("× the draft");
+  });
+
+  test("puts every requirement in the brief to the writer as binding", async () => {
+    const model = scriptedModel([says("The whole piece, storm and all.")]);
+    await runWrite({
+      brief:
+        "详细展开描写原文中的暴风雨那一段，并额外描写暴风雨中行人艰难在路上行走的样子，" +
+        "从第一次打雷的时间点开始写起，字数2000字以上。",
+      draft: "They set out. A storm came. They arrived.",
+      mode: "expand",
+      length: 2000,
+      config: testConfig(databasePath()),
+      model,
+    });
+    const prompt = model.prompts[0]!;
+    expect(prompt).toContain("Read it as a list of requirements and satisfy every one");
+    expect(prompt).toContain("where to begin and end");
+    expect(prompt).toContain("check the brief again against what you have written");
+    // A brief that names its own count has to beat the flag, or the two numbers
+    // in front of the writer contradict each other.
+    expect(prompt).toContain("If the brief states its own length, that figure governs");
+    // A brief that says where to start is asking for prose that starts there,
+    // not for a run-up through what came before it.
+    expect(prompt).toContain("do not lead in with what came before the passage");
+    expect(prompt).toContain("rather than summarizing");
+  });
+
+  test("says nothing about length when neither brief nor flag asks for one", () => {
+    expect(writePrompt({ brief: "b", draft: "d", mode: "expand", style: WRITE_STYLES.plain }))
+      .toContain("Choose an appropriate length");
+  });
+
+  test("reports an expansion that lands well under the floor it was given", async () => {
+    const result = await runWrite({
+      brief: "Open up the storm",
+      draft: "They set out. A storm came.",
+      mode: "expand",
+      length: 2000,
+      config: testConfig(databasePath()),
+      model: scriptedModel([says("Thunder, once, and then the rain.")]),
+    });
+    // The run still succeeded and still delivered its prose: the count is
+    // reported, not enforced.
+    expect(result).toMatchObject({ complete: true, stoppedBy: "complete" });
+    expect(result.warnings.join(" ")).toContain("short of the 2,000 asked for");
+  });
+
+  test("leaves an expansion that meets its floor unremarked", async () => {
+    const result = await runWrite({
+      brief: "Open up the storm",
+      draft: "起。",
+      mode: "expand",
+      length: 30,
+      config: testConfig(databasePath()),
+      model: scriptedModel([says("雷声轰鸣，行人艰难前行。".repeat(3))]),
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  test("counts characters for CJK prose and words elsewhere", () => {
+    expect(countWords("暴风雨来了。")).toBe(6);
+    expect(countWords("the storm arrived at last")).toBe(5);
+    expect(countWords("")).toBe(0);
+    expect(countWords("行人 walking 艰难")).toBe(5);
+  });
+
+  test("reads length as words in every mode", () => {
+    const style = WRITE_STYLES.plain;
+    expect(writePrompt({ brief: "b", mode: "new", style, length: 500 }))
+      .toContain("roughly 500 words");
+    expect(writePrompt({ brief: "b", draft: "d", mode: "continue", style, length: 500 }))
+      .toContain("roughly 500 words");
+    expect(writePrompt({ brief: "b", draft: "d", mode: "expand", style, length: 500 }))
+      .toContain("at least 500 words");
+    expect(writePrompt({ brief: "b", draft: "d", mode: "expand", style }))
+      .toContain("Choose an appropriate length");
   });
 
   test("uses an independent writing model and reasoning default", () => {

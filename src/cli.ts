@@ -18,7 +18,7 @@ const USAGE = `
 sonde — a web research agent
 
   sonde research "<question>" [options]
-  sonde write [brief] [--mode new|continue|expand] [--in draft.md]
+  sonde write "<brief>" [--mode new|continue|expand] [--in draft.md]
   sonde runs [--limit N]
   sonde doctor
 
@@ -32,7 +32,8 @@ Options
       --in <file>        read a draft (stdin is used when piped)
       --style <style>    ${Object.keys(WRITE_STYLES).join(", ")}
       --lang <language>  language for writing
-      --length <n>       words for new/continue; multiplier for expand
+      --length <n>       words to write; under expand, the length of the
+                         passage it returns
   -h, --help             show this
 
 Every write run also saves its prose under SONDE_WRITING_DIR (.sonde/writing,
@@ -208,11 +209,12 @@ async function writeCommand(
     : !process.stdin.isTTY ? readFileSync(0, "utf8") : undefined;
   if (mode === "new" && hasDraft) throw new Error("new mode does not accept a draft.");
   if (mode !== "new" && !hasDraft) throw new Error(`${mode} mode requires a draft via --in or stdin.`);
+  const length = parseLength(values.length);
   const config = loadConfig(); if (values.quiet) config.logLevel = "silent";
   const log = createLogger(config.logLevel);
   const controller = new AbortController(); process.once("SIGINT", () => controller.abort());
   const preview = new WritingPreviewRenderer(process.stderr);
-  const result = await runWrite({ brief, draft, mode, style, language: typeof values.lang === "string" ? values.lang : undefined, length: typeof values.length === "string" ? Number(values.length) : undefined, config, signal: controller.signal, onEvent: (event) => { if (!values.quiet && event.type === "text_delta") preview.update(event.delta); } });
+  const result = await runWrite({ brief, draft, mode, style, language: typeof values.lang === "string" ? values.lang : undefined, length, config, signal: controller.signal, onEvent: (event) => { if (!values.quiet && event.type === "text_delta") preview.update(event.delta); } });
   const savedTo = archiveProse(result, config, log);
   const output = values.json ? JSON.stringify({ ...result, savedTo }, null, 2) + "\n" : writeText(result);
 
@@ -228,6 +230,15 @@ async function writeCommand(
   logWriteUsage(result, log);
   if (savedTo) logSavedPath(savedTo, result.complete, log);
   return result.complete ? 0 : 2;
+}
+
+/** A word count is a count: a bad one would reach the model as "roughly NaN". */
+function parseLength(value: string | boolean | undefined): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const length = Number(value);
+  if (!Number.isFinite(length) || length <= 0)
+    throw new Error("--length must be a positive number of words.");
+  return length;
 }
 
 /**

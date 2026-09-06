@@ -43,19 +43,43 @@ product is prose, not evidence.
 
 **Brief**:
 The instruction given to a writing run — what to write, or what to do to the
-draft. Distinct from the draft itself.
+draft. Distinct from the draft itself. Read as a list of requirements, every one
+of them binding: a brief that names a passage, a starting point, material to add
+and a length is asking for all four, and prose that honours only the first has
+not done the job.
 _Avoid_: Prompt, question
 
 **Draft**:
 The existing prose a writing run works from. Required by the continue and expand
-modes, refused by the new mode.
+modes, refused by the new mode. Continue carries it into its output; expand
+reads it as context only and never reproduces it.
 _Avoid_: Input text, source
 
 **Mode**:
 Which of the three things a writing run does to its input: **new** writes from a
-brief alone; **continue** carries a draft on past its ending; **expand** makes
-the same material fuller. All three produce a whole finished piece, never an
-increment — continue emits the draft along with what it added.
+brief alone; **continue** carries a draft on past its ending; **expand** opens up
+the one part of the draft that the brief names.
+
+New and continue produce a whole finished piece — continue emits the draft along
+with what it added, never only the increment. Expand is the exception: its
+product is the passage alone. Returning the draft with one part opened up would
+bury the new writing in prose the user already had, and would let the writer
+quietly revise work they were happy with; where the passage goes is theirs to
+decide.
+
+**Length**:
+The word count a writing run is asked for, as `--length`. It counts the prose the
+run is being asked to produce: under new and continue the whole piece, as a soft
+target; under expand the passage, as a floor. Characters, not words, for CJK
+writing. A length stated in the brief governs over the flag — the brief is the
+more specific instruction, and two numbers in front of the writer would
+otherwise contradict each other.
+
+**Shortfall**:
+A passage that came back materially under the floor its run was given. It is
+reported as a warning and never enforced: the prose was written and paid for,
+and a count is the one requirement the run can check itself, so the honest move
+is to hand the prose over and say what it measured.
 
 **Style**:
 A named register the prose is written in, such as reportage or commentary.

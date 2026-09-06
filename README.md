@@ -62,13 +62,47 @@ for why that boundary is deliberate.
 ```bash
 sonde write "A welcome email for new members" --style business --length 350
 sonde write "Finish this article" --mode continue --in draft.md
-cat draft.md | sonde write "Make this fuller" --mode expand --length 2
+sonde write "Open up the storm at sea" --mode expand --in draft.md --length 3000
+cat draft.md | sonde write "Make this fuller" --mode expand
 ```
 
-`new` (the default) refuses a draft. `continue` and `expand` require one; all
-three return a complete piece, never merely an increment. Under `expand`,
-`--length` is a relative multiplier; under `new` it is an approximate word
-count. Styles are registers, not author imitations:
+`new` (the default) refuses a draft. `continue` and `expand` require one, read
+either from `--in <file>` or from stdin.
+
+`new` and `continue` return a whole finished piece — `continue` gives back the
+draft with its continuation, never only the increment. `expand` is the
+exception: it returns **the expanded passage alone**. The draft is context it
+reads, not output it repeats, so what lands on your screen is the new writing
+and nothing else, ready to drop back into the original where you want it.
+
+`expand` is aimed, not blanket, and the brief is read as a list of requirements
+rather than a topic — which part to develop, where it starts, what it must now
+contain that the draft only implies, how long it runs. All of them bind:
+
+```bash
+sonde write "详细展开描写原文中的暴风雨那一段，并额外描写暴风雨中行人艰难在路上行走的样子，从第一次打雷的时间点开始写起，字数 2000 字以上。" \
+  --mode expand --in draft.md --style literary --lang Chinese
+```
+
+That comes back as the storm passage on its own — opening on the first
+thunderclap, carrying the pedestrians struggling along the road — with no
+recap of what preceded it in the draft and no writing on past where it ends.
+
+`--length` is a word count in every mode. Under `new` and `continue` it is a
+soft target for the whole piece; under `expand` it is a floor for the passage.
+When the writing is in Chinese, Japanese, or Korean the count is characters
+(`--length 3000` = 3000 字). Omit the flag and the brief decides the length by
+itself; where a length in the brief and `--length` disagree, the brief wins.
+
+The count is checked afterwards, not enforced: if the passage lands well under
+the floor it was given, the run still returns its prose and says so.
+
+```
+! the expanded passage runs to roughly 1,240 words, short of the 2,000 asked for
+  — expand the saved file again to develop it further
+```
+
+Styles are registers, not author imitations:
 
 | Style | Use |
 | --- | --- |
@@ -88,9 +122,11 @@ the next round is a copy and a paste:
   sonde write "<what to do next>" --mode continue --in .sonde/writing/20260906-212410-new-run_ab12cd34.md
 ```
 
-The file holds the piece and nothing else — no brief, no usage line — because
-`--in` reads it straight back as the draft. `--out` and `--json` still work and
-are unaffected; `--json` also reports the saved path as `savedTo`.
+The file holds the prose and nothing else — no brief, no usage line — because
+`--in` reads it straight back as the draft. An `expand` run saves what it
+produced, which is the passage on its own; the original draft it worked from is
+untouched, and merging the two is yours to do. `--out` and `--json` still work
+and are unaffected; `--json` also reports the saved path as `savedTo`.
 
 If a provider error, timeout, or interrupt occurs after prose has begun,
 Sonde delivers that partial prose with an incomplete marker and exits with code
