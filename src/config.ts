@@ -22,6 +22,32 @@ function present(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+/**
+ * The upstream providers allowed to write the report.
+ *
+ * OpenRouter spreads a model across every provider serving it, and they do not
+ * all honour a JSON schema once the response is streamed. One observed run had
+ * the whole report returned as a JSON string nested inside another JSON string
+ * and truncated; another answered a streaming request with an in-stream 429.
+ * Either way the report is lost after the retrieval it was built from has
+ * already been paid for, so routing is pinned to the providers whose streamed
+ * output was actually checked against the report schema.
+ *
+ * This list is a snapshot, not a ranking — re-check it when the writer model
+ * changes. `SONDE_WRITER_PROVIDERS=any` hands routing back to OpenRouter.
+ */
+const VERIFIED_WRITER_PROVIDERS = [
+  "BaseTen",
+  "CoreWeave",
+  "DeepInfra",
+  "Fireworks",
+  "Morph",
+  "NextBit",
+  "Parasail",
+  "Together",
+  "Venice",
+];
+
 const num = (fallback: number) =>
   z.coerce
     .number()
@@ -44,6 +70,30 @@ const ConfigSchema = z.object({
   writerReasoningEffort: z
     .enum(["default", "none", "minimal", "low", "medium", "high", "xhigh"])
     .default("low"),
+
+  /**
+   * Empty means "no restriction". A list is sent as an ordered preference with
+   * fallbacks off: falling back past the list would put the report back in the
+   * hands of a provider that is not known to produce parseable output, which
+   * is the failure this setting exists to prevent.
+   */
+  writerProviders: z
+    .string()
+    .default(VERIFIED_WRITER_PROVIDERS.join(","))
+    .refine(
+      (raw) =>
+        raw.trim().toLowerCase() === "any" ||
+        raw.split(",").some((name) => name.trim().length > 0),
+      'must be a comma-separated list of OpenRouter provider names, or "any" to let OpenRouter route',
+    )
+    .transform((raw) =>
+      raw.trim().toLowerCase() === "any"
+        ? []
+        : raw
+            .split(",")
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0),
+    ),
 
   maxSteps: num(16),
   maxUsd: num(1),
@@ -84,6 +134,7 @@ export function loadConfig(
     plannerModel: env.SONDE_PLANNER_MODEL,
     writerModel: env.SONDE_WRITER_MODEL,
     writerReasoningEffort: env.SONDE_WRITER_REASONING_EFFORT,
+    writerProviders: env.SONDE_WRITER_PROVIDERS,
     maxSteps: env.SONDE_MAX_STEPS,
     maxUsd: env.SONDE_MAX_USD,
     maxTokens: env.SONDE_MAX_TOKENS,

@@ -45,6 +45,34 @@ describe("loadConfig", () => {
     ).toThrow(/writerReasoningEffort/);
   });
 
+  test("pins the writer to verified providers by default", () => {
+    // Unpinned, OpenRouter picked a provider per request and some of them
+    // returned a report that would not parse — a whole run's retrieval paid
+    // for and thrown away. The pin is the default, not opt-in.
+    const providers = loadConfig(KEYS).writerProviders;
+    expect(providers.length).toBeGreaterThan(0);
+    expect(providers).toContain("DeepInfra");
+    expect(
+      loadConfig({ ...KEYS, SONDE_WRITER_PROVIDERS: "" }).writerProviders,
+    ).toEqual(providers);
+  });
+
+  test("writer routing can be re-pinned or handed back to OpenRouter", () => {
+    expect(
+      loadConfig({ ...KEYS, SONDE_WRITER_PROVIDERS: " Together , Parasail " })
+        .writerProviders,
+    ).toEqual(["Together", "Parasail"]);
+
+    // Empty means unrestricted everywhere downstream, so "any" has to be the
+    // only way to reach it — a list that is all separators is a typo.
+    expect(
+      loadConfig({ ...KEYS, SONDE_WRITER_PROVIDERS: "any" }).writerProviders,
+    ).toEqual([]);
+    expect(() =>
+      loadConfig({ ...KEYS, SONDE_WRITER_PROVIDERS: ",  ,," }),
+    ).toThrow(/writerProviders/);
+  });
+
   test("an explicit value still wins over the default", () => {
     expect(loadConfig({ ...KEYS, SONDE_MAX_USD: "2.5" }).maxUsd).toBe(2.5);
     expect(loadConfig({ ...KEYS, SONDE_MAX_USD: " 2.5 " }).maxUsd).toBe(2.5);

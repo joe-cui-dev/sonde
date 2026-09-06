@@ -291,9 +291,18 @@ export async function runResearch(
       ? AbortSignal.any([options.signal, deadline])
       : deadline;
 
+    // A provider error (an upstream 429, say) arrives as an `error` part in
+    // the stream rather than as a rejected request, and `partialOutputStream`
+    // drops those parts. Left uncaught, the run then reports the empty text it
+    // was handed as a parse failure and names the wrong cause.
+    let streamError: unknown;
+
     try {
       const synthesis = streamText({
         model: writerModel,
+        onError: ({ error }) => {
+          streamError ??= error;
+        },
         output: Output.object({ schema: ReportSchema }),
         prompt: synthesisPrompt({
           question,
@@ -351,18 +360,14 @@ export async function runResearch(
         } catch {
           // The original stream error is generally the clearest failure cause.
         }
-        throw error;
+        throw streamError ?? error;
       }
 
-      const validated = validateCitations(
-        output,
-        registry,
-        evidence,
-      );
+      const validated = validateCitations(output, registry, evidence);
       report = validated.report;
       for (const w of validated.warnings) warn(w);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = describeSynthesisFailure(error);
       const outOfTime = deadline.aborted && !options.signal?.aborted;
       warn(
         outOfTime
@@ -399,6 +404,25 @@ export async function runResearch(
   return result;
 }
 
+/**
+ * Explains a failed synthesis in terms of what the writer actually returned.
+ *
+ * `NoObjectGeneratedError` says only that the text would not parse, which is
+ * the same sentence whether the provider streamed nothing, streamed prose, or
+ * streamed JSON it had wrapped in another JSON string. OpenRouter routes each
+ * request to a different upstream and they do not all honour the schema the
+ * same way when streaming, so the returned text is the evidence that says
+ * which of those happened.
+ */
+function describeSynthesisFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const text = (error as { text?: unknown }).text;
+  if (typeof text !== "string") return message;
+  return text.trim().length === 0
+    ? `${message} The writer returned no text.`
+    : `${message} The writer returned ${text.length} characters starting ${JSON.stringify(text.slice(0, 120))}`;
+}
+
 /** Pull the readable report fields out of a schema-derived partial snapshot. */
 function previewFromPartial(partial: unknown): ReportPreview | null {
   if (!partial || typeof partial !== "object") return null;
@@ -424,15 +448,33 @@ function previewFromPartial(partial: unknown): ReportPreview | null {
  * result. Runs that happened to emit no reasoning at all still matched every
  * quote exactly, so a cap here has no observed downside. Set
  * SONDE_WRITER_REASONING_EFFORT=default to hand the decision back.
+ *
+ * Routing is pinned for the same kind of reason: the writer is the one call
+ * whose output has to parse, and OpenRouter's upstreams do not all honour the
+ * report schema when streaming. `allow_fallbacks` is off deliberately — a
+ * fallback past the list is a fallback to a provider that may return text no
+ * amount of downstream handling can turn back into a report. See
+ * SONDE_WRITER_PROVIDERS.
  */
 export function writerModelSettings(config: Config): {
   usage: { include: true };
   reasoning?: { effort: Exclude<Config["writerReasoningEffort"], "default"> };
+  extraBody?: { provider: { order: string[]; allow_fallbacks: false } };
 } {
   const effort = config.writerReasoningEffort;
   return {
     usage: { include: true },
     ...(effort === "default" ? {} : { reasoning: { effort } }),
+    ...(config.writerProviders.length === 0
+      ? {}
+      : {
+          extraBody: {
+            provider: {
+              order: config.writerProviders,
+              allow_fallbacks: false as const,
+            },
+          },
+        }),
   };
 }
 

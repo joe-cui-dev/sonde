@@ -14,14 +14,21 @@ interface OpenRouterModel {
   pricing?: { prompt?: string; completion?: string };
 }
 
+interface OpenRouterEndpoint {
+  provider_name: string;
+  supported_parameters?: string[];
+}
+
 const MODELS_URL = "https://openrouter.ai/api/v1/models";
 const KEY_URL = "https://openrouter.ai/api/v1/key";
 
 /**
  * Everything that can be wrong before a run starts, checked for the price of
- * two GETs. The planner drives a tool loop and the writer produces a structured
+ * three GETs. The planner drives a tool loop and the writer produces a structured
  * object, so a model that supports neither fails only after money has been
- * spent on retrieval — which is exactly what this is here to prevent.
+ * spent on retrieval — which is exactly what this is here to prevent. Pinned
+ * writer routing is checked for the same reason: OpenRouter answers a request
+ * whose provider list it cannot satisfy with a 404, mid-run.
  */
 export async function preflight(
   config: Config,
@@ -59,6 +66,8 @@ export async function preflight(
       "structured_outputs",
     ]),
   );
+
+  checks.push(await checkWriterRouting(config, signal));
 
   checks.push(checkKeyShape("tavily key", config.tavilyApiKey, "tvly-"));
 
@@ -114,6 +123,78 @@ async function checkKey(config: Config, signal: AbortSignal): Promise<Check> {
       detail: `could not reach ${KEY_URL}: ${message(error)}`,
     };
   }
+}
+
+/**
+ * Confirms the pinned providers actually serve the writer model with the
+ * structured-output support the report depends on. A name that no longer
+ * appears — providers are added and dropped — would otherwise surface as
+ * "No endpoints found" at synthesis time, with the whole run already paid for.
+ */
+async function checkWriterRouting(
+  config: Config,
+  signal: AbortSignal,
+): Promise<Check> {
+  const name = "writer routing";
+  if (config.writerProviders.length === 0) {
+    return {
+      name,
+      ok: true,
+      detail:
+        "unpinned — OpenRouter picks the provider (SONDE_WRITER_PROVIDERS)",
+    };
+  }
+
+  const url = `${MODELS_URL}/${config.writerModel}/endpoints`;
+  let endpoints: OpenRouterEndpoint[];
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${config.openrouterApiKey}` },
+      signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    endpoints =
+      ((await res.json()) as { data?: { endpoints?: OpenRouterEndpoint[] } })
+        .data?.endpoints ?? [];
+  } catch (error) {
+    return {
+      name,
+      ok: false,
+      detail: `${config.writerProviders.length} pinned provider(s) not verified: could not fetch ${url}: ${message(error)}`,
+    };
+  }
+
+  const byName = new Map(endpoints.map((e) => [e.provider_name, e]));
+  const unknown = config.writerProviders.filter((p) => !byName.has(p));
+  const unstructured = config.writerProviders.filter(
+    (p) =>
+      byName.has(p) &&
+      !(byName.get(p)!.supported_parameters ?? []).includes(
+        "structured_outputs",
+      ),
+  );
+
+  if (unknown.length > 0 || unstructured.length > 0) {
+    const problems = [
+      unknown.length > 0
+        ? `do not serve ${config.writerModel}: ${unknown.join(", ")}`
+        : null,
+      unstructured.length > 0
+        ? `serve it without structured_outputs: ${unstructured.join(", ")}`
+        : null,
+    ].filter(Boolean);
+    return {
+      name,
+      ok: false,
+      detail: `SONDE_WRITER_PROVIDERS names providers that ${problems.join("; and that ")}`,
+    };
+  }
+
+  return {
+    name,
+    ok: true,
+    detail: `pinned to ${config.writerProviders.length} of ${endpoints.length} providers, fallbacks off`,
+  };
 }
 
 function checkModel(

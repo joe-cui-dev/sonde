@@ -11,6 +11,7 @@ import { openDb } from "../src/store/db.js";
 import type { RunEvent } from "../src/types.js";
 import {
   calls,
+  erroringStreamModel,
   fakeRetrieval,
   hangingModel,
   says,
@@ -85,7 +86,9 @@ describe("runResearch (offline)", () => {
       onEvent: (event) => events.push(event),
     });
 
-    const previewIndex = events.findIndex((event) => event.type === "report_preview");
+    const previewIndex = events.findIndex(
+      (event) => event.type === "report_preview",
+    );
     const endIndex = events.findIndex((event) => event.type === "run_end");
     expect(previewIndex).toBeGreaterThan(-1);
     expect(previewIndex).toBeLessThan(endIndex);
@@ -97,6 +100,25 @@ describe("runResearch (offline)", () => {
       .all(result.runId) as Array<{ type: string }>;
     db.close();
     expect(storedTypes.map((row) => row.type)).not.toContain("report_preview");
+  });
+
+  test("reports a mid-stream provider error as itself, not as a parse failure", async () => {
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: testConfig(dbPath),
+      retrieval: fakeRetrieval(PAGES),
+      models: {
+        planner: healthyPlanner(),
+        writer: erroringStreamModel("Provider returned error"),
+      },
+    });
+
+    expect(result.report).toBeNull();
+    const synthesisWarning = result.warnings.find((w) =>
+      w.startsWith("synthesis failed"),
+    );
+    expect(synthesisWarning).toContain("Provider returned error");
+    expect(synthesisWarning).not.toContain("could not parse the response");
   });
 
   test("searches, reads, and synthesises a cited report", async () => {
@@ -320,7 +342,9 @@ describe("runResearch (offline)", () => {
 
     // The regression: the run used to keep only the last step's text, throwing
     // away the finding in step 2 — the one thing the report needed.
-    expect(result.notes).toContain("Sub-question: what is the documented limit");
+    expect(result.notes).toContain(
+      "Sub-question: what is the documented limit",
+    );
     expect(result.notes).toContain("Established: the spec says 42 rps");
     expect(result.notes).toContain("One more page to check");
     expect(writer.prompts[0]).toContain("Established: the spec says 42 rps");
@@ -544,7 +568,10 @@ describe("runResearch (offline)", () => {
       question: "What is the rate limit?",
       config: testConfig(dbPath),
       retrieval: fakeRetrieval(PAGES),
-      models: { planner, writer: scriptedModel([says(JSON.stringify(REPORT))]) },
+      models: {
+        planner,
+        writer: scriptedModel([says(JSON.stringify(REPORT))]),
+      },
     });
 
     // Step 2's prompt carries the search results. Both pages are in there, and
@@ -610,6 +637,29 @@ describe("writerModelSettings", () => {
     // provider's, and sending it would be rejected.
     expect("reasoning" in settings).toBe(false);
     expect(settings.usage).toEqual({ include: true });
+  });
+
+  test("pins routing to the configured providers with fallbacks off", () => {
+    const settings = writerModelSettings({
+      ...testConfig("/tmp/unused.db"),
+      writerProviders: ["Together", "Parasail"],
+    });
+
+    // Falling back past the list would defeat the point of having one: the
+    // fallback is exactly the provider that is not known to return parseable
+    // structured output.
+    expect(settings.extraBody).toEqual({
+      provider: { order: ["Together", "Parasail"], allow_fallbacks: false },
+    });
+  });
+
+  test("sends no provider block when routing is unpinned", () => {
+    const settings = writerModelSettings({
+      ...testConfig("/tmp/unused.db"),
+      writerProviders: [],
+    });
+
+    expect("extraBody" in settings).toBe(false);
   });
 
   test("passes a retuned effort through unchanged", () => {

@@ -27,7 +27,7 @@ const systemClock: PreviewClock = {
  */
 export class ReportPreviewRenderer {
   private started = false;
-  private report = "";
+  private shown = "";
   private startedAt = 0;
   private waitingTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -41,24 +41,35 @@ export class ReportPreviewRenderer {
     this.started = true;
     this.startedAt = this.clock.now();
     this.renderWaiting();
-    this.waitingTimer = this.clock.setInterval(() => this.renderWaiting(), 1_000);
+    this.waitingTimer = this.clock.setInterval(
+      () => this.renderWaiting(),
+      1_000,
+    );
   }
 
   update(preview: ReportPreview): void {
     if (!this.enabled) return;
     this.start();
-    if (typeof preview.report !== "string") return;
+
+    // The summary is the schema's first field, so it is the whole of the
+    // preview for as long as the writer is still on it — often most of the
+    // stream. Showing only `report` left the waiting indicator up while text
+    // was already arriving, which reads as a stalled run.
+    const text = [preview.summary, preview.report]
+      .filter((part): part is string => typeof part === "string")
+      .join("\n\n");
+    if (!text) return;
     this.stopWaiting();
 
     // Structured partial outputs are cumulative snapshots. Write only the
     // newly observed suffix; if parsing revises text, retain the displayed
     // snapshot instead of trying to rewrite terminal history.
-    if (preview.report.startsWith(this.report)) {
-      this.output.write(preview.report.slice(this.report.length));
-    } else if (preview.report !== this.report) {
-      this.output.write(`\n\n[preview updated]\n${preview.report}`);
+    if (text.startsWith(this.shown)) {
+      this.output.write(text.slice(this.shown.length));
+    } else if (text !== this.shown) {
+      this.output.write(`\n\n[preview updated]\n${text}`);
     }
-    this.report = preview.report;
+    this.shown = text;
   }
 
   fail(reason: string): void {
@@ -78,7 +89,7 @@ export class ReportPreviewRenderer {
   }
 
   private renderWaiting(): void {
-    if (!this.enabled || this.report) return;
+    if (!this.enabled || this.shown) return;
     const elapsed = Math.floor((this.clock.now() - this.startedAt) / 1_000);
     this.output.write(
       `\r\x1b[2KReport preview (in progress; not yet validated) · waiting ${elapsed}s`,
@@ -89,7 +100,9 @@ export class ReportPreviewRenderer {
     if (this.waitingTimer !== undefined) {
       this.clock.clearInterval(this.waitingTimer);
       this.waitingTimer = undefined;
-      this.output.write("\r\x1b[2K\nReport preview (in progress; not yet validated)\n\n");
+      this.output.write(
+        "\r\x1b[2K\nReport preview (in progress; not yet validated)\n\n",
+      );
     }
   }
 }

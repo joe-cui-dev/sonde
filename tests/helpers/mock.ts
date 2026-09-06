@@ -61,12 +61,16 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
   // What each call was told about tool use. A mock cannot be made to obey
   // toolChoice, but a test can still check the instruction reached the model.
   const toolChoices: Array<string | undefined> = [];
-  const next = (options: { prompt?: unknown; toolChoice?: { type?: string } }) => {
+  const next = (options: {
+    prompt?: unknown;
+    toolChoice?: { type?: string };
+  }) => {
     prompts.push(flattenPrompt(options.prompt));
     toolChoices.push(options.toolChoice?.type);
     const step = steps[index];
     index += 1;
-    if (step === undefined) throw new Error(`mock model ran out of steps at ${index}`);
+    if (step === undefined)
+      throw new Error(`mock model ran out of steps at ${index}`);
     if (step instanceof Error) throw step;
     return step;
   };
@@ -78,12 +82,19 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
       return {
         stream: new ReadableStream({
           start(controller) {
-            controller.enqueue({ type: "stream-start", warnings: step.warnings });
+            controller.enqueue({
+              type: "stream-start",
+              warnings: step.warnings,
+            });
             let id = 0;
             for (const part of step.content) {
               if (part.type !== "text") continue;
               controller.enqueue({ type: "text-start", id: String(id) });
-              controller.enqueue({ type: "text-delta", id: String(id), delta: part.text });
+              controller.enqueue({
+                type: "text-delta",
+                id: String(id),
+                delta: part.text,
+              });
               controller.enqueue({ type: "text-end", id: String(id) });
               id += 1;
             }
@@ -137,8 +148,16 @@ export function streamedModel(value: unknown, costUsd = 0.001) {
         start(controller) {
           controller.enqueue({ type: "stream-start", warnings: [] });
           controller.enqueue({ type: "text-start", id: "report" });
-          controller.enqueue({ type: "text-delta", id: "report", delta: text.slice(0, midpoint) });
-          controller.enqueue({ type: "text-delta", id: "report", delta: text.slice(midpoint) });
+          controller.enqueue({
+            type: "text-delta",
+            id: "report",
+            delta: text.slice(0, midpoint),
+          });
+          controller.enqueue({
+            type: "text-delta",
+            id: "report",
+            delta: text.slice(midpoint),
+          });
           controller.enqueue({ type: "text-end", id: "report" });
           controller.enqueue({
             type: "finish",
@@ -244,6 +263,9 @@ export function testConfig(dbPath: string): Config {
     plannerModel: "mock/planner",
     writerModel: "mock/writer",
     writerReasoningEffort: "low",
+    // Offline runs never reach OpenRouter, so pinning routing here would only
+    // be a fact the tests have to keep in sync with the real default.
+    writerProviders: [],
     maxSteps: 8,
     maxUsd: 1,
     maxTokens: 400_000,
@@ -258,4 +280,30 @@ export function testConfig(dbPath: string): Config {
     appUrl: "https://example.test",
     appTitle: "sonde-test",
   };
+}
+
+/**
+ * A writer whose stream carries a provider error instead of content — the
+ * shape OpenRouter uses for an upstream 429, which arrives as an `error` part
+ * mid-stream rather than as a rejected request.
+ */
+export function erroringStreamModel(message: string) {
+  return new MockLanguageModelV4({
+    modelId: "mock/writer",
+    doStream: {
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] });
+          controller.enqueue({ type: "error", error: { message } });
+          controller.enqueue({
+            type: "finish",
+            finishReason: { unified: "error", raw: "error" },
+            usage: usage(0, 0),
+            providerMetadata: { openrouter: { usage: { cost: 0 } } },
+          });
+          controller.close();
+        },
+      }),
+    },
+  });
 }
