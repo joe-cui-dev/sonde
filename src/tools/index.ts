@@ -4,7 +4,7 @@ import type { BudgetTracker } from "../budget/budget.js";
 import type { Retrieval } from "../providers/index.js";
 import type { PageCache } from "../store/cache.js";
 import type { SourceRegistry } from "../agent/source-registry.js";
-import type { EventSink } from "../types.js";
+import type { EventSink, StopReason } from "../types.js";
 import { canonicalizeUrl, dedupeByUrl, isHttpUrl } from "../util/url.js";
 
 /** Per-page character cap fed to the model, and the cap across one read call. */
@@ -46,26 +46,34 @@ export interface ToolContext {
   budget: BudgetTracker;
   emit: EventSink;
   onSource: (id: string) => void;
+  /** Called when a tool is turned away, with the limit that turned it away. */
+  onRefusal: (reason: StopReason) => void;
 }
 
+const RESOURCE_LABEL: Record<string, string> = {
+  max_usd: "dollar budget",
+  max_tokens: "token budget",
+  max_search_credits: "search-credit budget",
+  max_wall_ms: "time budget",
+};
+
 /**
- * What the model is told when a tool declines to run. The two reasons need
- * different wording: "spent" means there is no money left, "final_step" means
- * there is money but no step left in which to read the answer.
+ * What the model is told when a tool declines to run. The step limit needs
+ * different wording from the rest: there is budget left, just no step in which
+ * the answer could be read.
  */
-function refusal(reason: "spent" | "final_step") {
+function refusal(reason: StopReason) {
+  const conclude =
+    "Do not call any more tools. Write your findings now from the evidence you " +
+    "already have, and be explicit about what you could not verify.";
+
   return {
     refused: true as const,
     reason,
     instruction:
-      reason === "final_step"
-        ? "This is the last step of the run. Anything fetched now would be paid " +
-          "for and you would never get to read it. Do not call any more tools. " +
-          "Write your findings now from the evidence you already have, and be " +
-          "explicit about what you could not verify."
-        : "The retrieval budget for this run is spent. Do not call any more tools. " +
-          "Write your conclusion now from the evidence you already have, and be " +
-          "explicit about what you could not verify.",
+      reason === "max_steps"
+        ? `This is the last step of the run. Anything fetched now would be paid for and you would never get to read it. ${conclude}`
+        : `The ${RESOURCE_LABEL[reason] ?? "retrieval budget"} for this run is spent. ${conclude}`,
   };
 }
 
@@ -97,7 +105,10 @@ export function createTools(ctx: ToolContext) {
       }),
       execute: async (input) => {
         const blocked = ctx.budget.retrievalBlockedBy();
-        if (blocked) return refusal(blocked);
+        if (blocked) {
+          ctx.onRefusal(blocked);
+          return refusal(blocked);
+        }
 
         const started = Date.now();
         ctx.emit({ type: "tool_start", tool: "web_search", input });
@@ -177,11 +188,12 @@ export function createTools(ctx: ToolContext) {
         if (misses.length > 0) {
           const blocked = ctx.budget.retrievalBlockedBy();
           if (blocked) {
+            ctx.onRefusal(blocked);
             if (cached.length === 0) return refusal(blocked);
             failures = misses.map((url) => ({
               url,
               error:
-                blocked === "final_step"
+                blocked === "max_steps"
                   ? "skipped: last step of the run, you would never read it"
                   : "skipped: retrieval budget spent",
             }));

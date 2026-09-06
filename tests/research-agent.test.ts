@@ -9,6 +9,7 @@ import type { RunEvent } from "../src/types.js";
 import {
   calls,
   fakeRetrieval,
+  hangingModel,
   says,
   scriptedModel,
   testConfig,
@@ -330,6 +331,143 @@ describe("runResearch (offline)", () => {
     expect(result.sources.filter((s) => s.read).map((s) => s.id)).toEqual([
       "S1",
     ]);
+  });
+
+  test("calls a run that wrapped up on its last allowed step complete", async () => {
+    const writer = scriptedModel([says(JSON.stringify(REPORT))]);
+
+    // Three steps allowed, three steps used — but the model chose to stop, and
+    // its final step needed no tool. Nothing was cut short.
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: { ...testConfig(dbPath), maxSteps: 3 },
+      retrieval: fakeRetrieval(PAGES),
+      models: { planner: healthyPlanner(), writer },
+    });
+
+    expect(result.usage.steps).toBe(3);
+    expect(result.stoppedBy).toBe("complete");
+    expect(result.usage.hit).toBeNull();
+    // And the writer is not told to hedge a report that is not actually thin.
+    expect(writer.prompts[0]).not.toContain("stopped early");
+  });
+
+  test("calls a run whose tools were turned away cut short, not complete", async () => {
+    const writer = scriptedModel([says(JSON.stringify(REPORT))]);
+    const planner = scriptedModel([
+      // Reads the spec, and in doing so spends 90% of the dollar budget.
+      calls(
+        "read_pages",
+        { urls: ["https://example.test/spec"] },
+        { text: "Established: the spec says 42 rps [S1].", costUsd: 0.009 },
+      ),
+      // Wants to search, is turned away by the reserve, and wraps up politely.
+      calls(
+        "web_search",
+        { query: "rate limit", topic: "general", maxResults: 5 },
+        { text: "Blocked from searching further.", costUsd: 0 },
+      ),
+      says("Concluding with what I have.", 0),
+    ]);
+    const retrieval = fakeRetrieval(PAGES);
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: { ...testConfig(dbPath), maxUsd: 0.01 },
+      retrieval,
+      models: { planner, writer },
+    });
+
+    // The search never happened, and no limit is technically over its line —
+    // the reserve stopped it. finishReason alone would have said "complete".
+    expect(retrieval.searches).toEqual([]);
+    expect(result.stoppedBy).toBe("max_usd");
+    expect(writer.prompts[0]).toContain("stopped early");
+  });
+
+  test("reconciles stoppedBy with the final snapshot when the writer overspends", async () => {
+    // Research stays well inside $0.01; the writer's own call blows past it.
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: { ...testConfig(dbPath), maxUsd: 0.01 },
+      retrieval: fakeRetrieval(PAGES),
+      models: {
+        planner: healthyPlanner(),
+        writer: scriptedModel([says(JSON.stringify(REPORT), 0.02)]),
+      },
+    });
+
+    // The record used to say "complete" while its own snapshot showed a
+    // breached limit. Both now agree.
+    expect(result.usage.usd).toBeCloseTo(0.023, 6);
+    expect(result.usage.hit).toBe("max_usd");
+    expect(result.stoppedBy).toBe("max_usd");
+    // The report is still returned — it was paid for, and it is valid.
+    expect(result.report?.citations.map((c) => c.id)).toEqual(["S1"]);
+  });
+
+  test("never reports complete while a limit sits over its line", async () => {
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: { ...testConfig(dbPath), maxSearchCredits: 2 },
+      retrieval: fakeRetrieval(PAGES),
+      models: {
+        planner: healthyPlanner(),
+        writer: scriptedModel([says(JSON.stringify(REPORT))]),
+      },
+    });
+
+    expect(result.usage.hit).not.toBeNull();
+    expect(result.stoppedBy).not.toBe("complete");
+  });
+
+  test("aborts a writer that would run past the wall-clock budget", async () => {
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      // Enough time for the (instant) mock loop, not enough for a writer that
+      // never answers.
+      config: { ...testConfig(dbPath), maxWallMs: 400 },
+      retrieval: fakeRetrieval(PAGES),
+      models: { planner: healthyPlanner(), writer: hangingModel() },
+    });
+
+    expect(result.report).toBeNull();
+    expect(result.warnings.join(" ")).toContain("wall-clock");
+    expect(result.stoppedBy).toBe("max_wall_ms");
+    // The run still hands back everything it paid for.
+    expect(result.notes).toContain("42 rps");
+    expect(result.sources.filter((s) => s.read)).toHaveLength(1);
+    // And it did not overrun by much — the point of the deadline.
+    expect(result.usage.elapsedMs).toBeLessThan(2_000);
+  });
+
+  test("does not start a writer when the wall-clock budget is already gone", async () => {
+    const writer = scriptedModel([says(JSON.stringify(REPORT))]);
+    const planner = scriptedModel([
+      calls(
+        "read_pages",
+        { urls: ["https://example.test/spec"] },
+        { text: "Established: the spec says 42 rps [S1]." },
+      ),
+      says("Concluding."),
+    ]);
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      // The fetch itself outlasts the whole budget, so the run arrives at
+      // synthesis having already read a page and having no time to write.
+      config: { ...testConfig(dbPath), maxWallMs: 200 },
+      retrieval: fakeRetrieval(PAGES, 600),
+      models: { planner, writer },
+    });
+
+    expect(result.sources.filter((s) => s.read)).toHaveLength(1);
+    expect(writer.callCount).toBe(0);
+    expect(result.report).toBeNull();
+    expect(result.warnings.join(" ")).toContain("No time left");
+    expect(result.stoppedBy).toBe("max_wall_ms");
+    // The evidence it paid for still comes back to the caller.
+    expect(result.notes).toContain("42 rps");
   });
 
   test("records the run and its sources in sqlite", async () => {

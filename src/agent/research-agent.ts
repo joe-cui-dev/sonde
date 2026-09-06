@@ -133,6 +133,12 @@ export async function runResearch(
     options.models?.writer ??
     openrouter!(config.writerModel, { usage: { include: true } });
 
+  // The limit that first turned a tool away, if any. This is the ground truth
+  // for "the run was cut short": with a step reserved for the wrap-up, a
+  // truncated run now ends with the model politely concluding, which looks
+  // exactly like a run that finished because it was done.
+  let retrievalCutShortBy: StopReason | null = null;
+
   const tools = createTools({
     retrieval: options.retrieval ?? createRetrieval(config),
     registry,
@@ -140,6 +146,9 @@ export async function runResearch(
     budget,
     emit,
     onSource: () => {},
+    onRefusal: (reason) => {
+      retrievalCutShortBy ??= reason;
+    },
   });
 
   const agent = new ToolLoopAgent({
@@ -156,7 +165,8 @@ export async function runResearch(
   });
 
   const warnings: string[] = [];
-  let stoppedBy: StopReason = "complete";
+  let loopError: string | null = null;
+  let finishedNaturally = false;
   let notes = "";
 
   // Every step's prose is kept as it arrives, and the notes are the whole
@@ -185,12 +195,15 @@ export async function runResearch(
         });
       },
     });
+    // "stop" means the model chose to end; anything else means it was cut off
+    // mid-thought and had more it wanted to do.
+    finishedNaturally = result.finishReason === "stop";
     const finalText = result.text?.trim() ?? "";
     if (finalText && stepTexts.at(-1) !== finalText) stepTexts.push(finalText);
     notes = stepTexts.join("\n\n");
   } catch (error) {
-    stoppedBy = "error";
     const message = error instanceof Error ? error.message : String(error);
+    loopError = message;
     notes = stepTexts.join("\n\n");
     warnings.push(
       notes
@@ -201,8 +214,14 @@ export async function runResearch(
     logger.error(message);
   }
 
-  const limitHit = budget.check();
-  if (stoppedBy !== "error" && limitHit) stoppedBy = limitHit;
+  // What ended the research loop, in order of how conclusive the evidence is:
+  // a breached resource limit, then a tool we turned away, then the step limit —
+  // which only counts against a model that still had something it wanted to do.
+  let stoppedBy: StopReason = loopError
+    ? "error"
+    : (budget.check() ??
+      retrievalCutShortBy ??
+      (finishedNaturally ? "complete" : "max_steps"));
 
   // ── Synthesis ───────────────────────────────────────────────────────────────
   // Deliberately a separate call. The writer sees the notes plus the actual text
@@ -211,8 +230,31 @@ export async function runResearch(
   const evidence = collectEvidence(registry.read(), cache);
   let report: ResearchReport | null = null;
 
-  if (notes.trim().length > 0 && evidence.length > 0) {
+  // The writer runs inside the same wall-clock budget as everything else. It
+  // used to run outside it: the loop would gather right up to the deadline and
+  // the report would then push the run past a limit it had already reported
+  // staying inside. Retrieval now stops with time in reserve, and the call
+  // below is capped at whatever of that reserve is actually left.
+  const deadlineMs = budget.remainingWallMs;
+
+  if (notes.trim().length === 0 && evidence.length === 0) {
+    // Nothing to say and nothing to say it from — fall through.
+  } else if (evidence.length === 0) {
+    warnings.push(
+      "No source was successfully read — nothing to cite, so no report was written.",
+    );
+  } else if (deadlineMs <= 0) {
+    warnings.push(
+      `No time left in the ${(limits.maxWallMs / 1000).toFixed(0)}s wall-clock budget to write the report — the notes and sources below are what the run gathered.`,
+    );
+    emit({ type: "warning", message: warnings.at(-1)! });
+  } else if (notes.trim().length > 0) {
     emit({ type: "phase", phase: "synthesis" });
+    const deadline = AbortSignal.timeout(deadlineMs);
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, deadline])
+      : deadline;
+
     try {
       const synthesis = await generateText({
         model: writerModel,
@@ -223,7 +265,7 @@ export async function runResearch(
           evidence,
           degraded: stoppedBy !== "complete",
         }),
-        ...(options.signal ? { abortSignal: options.signal } : {}),
+        abortSignal: signal,
         telemetry: {
           functionId: "sonde.synthesis",
           integrations: [
@@ -244,14 +286,21 @@ export async function runResearch(
       for (const w of validated.warnings) emit({ type: "warning", message: w });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`synthesis failed: ${message}`);
-      emit({ type: "warning", message });
+      const outOfTime = deadline.aborted && !options.signal?.aborted;
+      warnings.push(
+        outOfTime
+          ? `synthesis ran out of wall-clock budget after ${(deadlineMs / 1000).toFixed(1)}s and was aborted — no report was written`
+          : `synthesis failed: ${message}`,
+      );
+      emit({ type: "warning", message: warnings.at(-1)! });
     }
-  } else if (evidence.length === 0) {
-    warnings.push(
-      "No source was successfully read — nothing to cite, so no report was written.",
-    );
   }
+
+  // The record must agree with itself. The writer's own spend can push a run
+  // that stayed inside every limit over one of them, and a run that reports
+  // "complete" while its snapshot shows a breached limit is a run whose budget
+  // means nothing.
+  if (stoppedBy === "complete") stoppedBy = budget.check() ?? "complete";
 
   for (const source of registry.all()) store.saveSource(runId, source);
 

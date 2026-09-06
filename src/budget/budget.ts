@@ -47,16 +47,31 @@ export class BudgetTracker {
     this.credits += n;
   }
 
-  /** The first limit that has been reached, or null. */
+  get elapsedMs(): number {
+    return Date.now() - this.startedAt;
+  }
+
+  /** Wall-clock time left in the run's budget, floored at zero. */
+  get remainingWallMs(): number {
+    return Math.max(0, this.limits.maxWallMs - this.elapsedMs);
+  }
+
+  /**
+   * The first *resource* limit that has been reached, or null.
+   *
+   * Steps are deliberately not one of them. The loop's own `stepCountIs` owns
+   * that boundary, and a model that wraps up on its last allowed step has not
+   * overspent anything — reporting it here made a finished run look like a
+   * breached one. Whether the step limit truncated a run is a question about
+   * the loop, answered where the loop ends.
+   */
   check(): StopReason | null {
-    if (this.steps >= this.limits.maxSteps) return "max_steps";
     if (this.usdSpent >= this.limits.maxUsd) return "max_usd";
     if (this.inputTokens + this.outputTokens >= this.limits.maxTokens)
       return "max_tokens";
     if (this.credits >= this.limits.maxSearchCredits)
       return "max_search_credits";
-    if (Date.now() - this.startedAt >= this.limits.maxWallMs)
-      return "max_wall_ms";
+    if (this.elapsedMs >= this.limits.maxWallMs) return "max_wall_ms";
     return null;
   }
 
@@ -70,23 +85,44 @@ export class BudgetTracker {
   }
 
   /**
-   * Why retrieval is blocked, or null while it is still allowed.
+   * Which limit is blocking retrieval, named as the reason that would end the
+   * run, or null while retrieval is still allowed.
    *
-   * `"final_step"` is the subtle one. Tools run *during* a step, but the model
+   * `"max_steps"` is the subtle one. Tools run *during* a step, but the model
    * only sees what they returned on the *next* step. Fetching on the last step
    * means paying for pages nobody ever reads — and worse, those pages get
    * marked citable, so the writer is handed sources it has no text for. We stop
    * retrieval one step early and let the model spend that step writing notes.
+   *
+   * Everything else is the reserve: retrieval stops with `reservePct` of each
+   * resource still unspent, so the writer is never left without the budget to
+   * produce a report. Wall time is in that list — leaving it out was how a run
+   * could gather until the very last second and then overrun its own deadline
+   * while synthesising.
    */
-  retrievalBlockedBy(reservePct = 0.15): "spent" | "final_step" | null {
-    if (this.exhausted) return "spent";
-    if (this.stepsLeft <= 1) return "final_step";
-    const usdLeft = 1 - this.usdSpent / this.limits.maxUsd;
-    const tokLeft =
-      1 - (this.inputTokens + this.outputTokens) / this.limits.maxTokens;
-    const creditLeft = 1 - this.credits / this.limits.maxSearchCredits;
-    // Reserve headroom so the writer can still produce a report afterwards.
-    return Math.min(usdLeft, tokLeft, creditLeft) > reservePct ? null : "spent";
+  retrievalBlockedBy(reservePct = 0.15): StopReason | null {
+    const spent = this.check();
+    if (spent) return spent;
+    if (this.stepsLeft <= 1) return "max_steps";
+
+    const remaining: Array<[StopReason, number]> = [
+      ["max_usd", 1 - this.usdSpent / this.limits.maxUsd],
+      [
+        "max_tokens",
+        1 - (this.inputTokens + this.outputTokens) / this.limits.maxTokens,
+      ],
+      [
+        "max_search_credits",
+        1 - this.credits / this.limits.maxSearchCredits,
+      ],
+      ["max_wall_ms", 1 - this.elapsedMs / this.limits.maxWallMs],
+    ];
+
+    let tightest = remaining[0]!;
+    for (const entry of remaining) {
+      if (entry[1] < tightest[1]) tightest = entry;
+    }
+    return tightest[1] > reservePct ? null : tightest[0];
   }
 
   /** True while there is still room — and a step left — to spend on retrieval. */
@@ -102,7 +138,7 @@ export class BudgetTracker {
       totalTokens: this.inputTokens + this.outputTokens,
       usd: this.usdSpent,
       searchCredits: this.credits,
-      elapsedMs: Date.now() - this.startedAt,
+      elapsedMs: this.elapsedMs,
       limits: this.limits,
       hit: this.check(),
     };

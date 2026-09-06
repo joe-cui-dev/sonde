@@ -78,6 +78,23 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
   });
 }
 
+/**
+ * A model that never answers and rejects only when its call is aborted — used
+ * to prove a deadline is actually wired to the request.
+ */
+export function hangingModel() {
+  return new MockLanguageModelV4({
+    modelId: "mock/hanging",
+    doGenerate: ({ abortSignal }) =>
+      new Promise<GenerateResult>((_, reject) => {
+        const fail = () =>
+          reject(abortSignal?.reason ?? new Error("aborted"));
+        if (abortSignal?.aborted) fail();
+        else abortSignal?.addEventListener("abort", fail);
+      }),
+  });
+}
+
 /** Collapses a prompt's messages into one searchable string. */
 function flattenPrompt(prompt: unknown): string {
   const messages = (prompt ?? []) as Array<{ content?: unknown }>;
@@ -103,9 +120,14 @@ export interface FakePage {
   text: string;
 }
 
-/** Retrieval that never touches the network and bills a fixed credit cost. */
+/**
+ * Retrieval that never touches the network and bills a fixed credit cost.
+ * `delayMs` makes a fetch take real time, which is how a test can walk a run
+ * into its own wall-clock deadline.
+ */
 export function fakeRetrieval(
   pages: FakePage[],
+  delayMs = 0,
 ): Retrieval & { searches: string[]; fetches: string[][] } {
   const searches: string[] = [];
   const fetches: string[][] = [];
@@ -133,6 +155,8 @@ export function fakeRetrieval(
       name: "fake",
       async fetch(urls): Promise<FetchOutcome> {
         fetches.push([...urls]);
+        if (delayMs > 0)
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         const found = urls.filter((u) => byUrl.has(u));
         return {
           pages: found.map((u) => {

@@ -40,7 +40,7 @@ const ConfigSchema = z.object({
   maxUsd: num(1),
   maxTokens: num(400_000),
   maxSearchCredits: num(60),
-  maxWallMs: num(300_000),
+  maxWallMs: num(900_000),
 
   searchProvider: z.enum(["tavily"]).default("tavily"),
   searchDepth: z

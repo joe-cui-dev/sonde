@@ -77,6 +77,7 @@ describe("read_pages", () => {
         budget,
         emit: () => {},
         onSource: () => {},
+        onRefusal: () => {},
       },
     };
   }
@@ -148,10 +149,12 @@ describe("the final-step reserve", () => {
     const registry = new SourceRegistry();
     const retrieval = fakeRetrieval([page]);
     const budget = new BudgetTracker(limits);
+    const refusals: string[] = [];
     return {
       registry,
       retrieval,
       budget,
+      refusals,
       tools: createTools({
         retrieval,
         registry,
@@ -159,6 +162,7 @@ describe("the final-step reserve", () => {
         budget,
         emit: () => {},
         onSource: () => {},
+        onRefusal: (reason) => refusals.push(reason),
       }),
     };
   }
@@ -166,7 +170,7 @@ describe("the final-step reserve", () => {
   const runOpts = { toolCallId: "t1", messages: [] } as never;
 
   test("read_pages refuses on the last step instead of paying for an unread page", async () => {
-    const { registry, retrieval, budget, tools } = context();
+    const { registry, retrieval, budget, refusals, tools } = context();
     budget.countStep();
     budget.countStep(); // now on the final step of three
 
@@ -176,8 +180,10 @@ describe("the final-step reserve", () => {
     )) as { refused?: true; reason?: string; instruction?: string };
 
     expect(result.refused).toBe(true);
-    expect(result.reason).toBe("final_step");
+    expect(result.reason).toBe("max_steps");
     expect(result.instruction).toContain("never get to read it");
+    // The agent hears about it, which is how a cut-short run gets labelled.
+    expect(refusals).toEqual(["max_steps"]);
 
     // Nothing was fetched, and — the bug this guards — nothing became citable.
     expect(retrieval.fetches).toEqual([]);
@@ -186,7 +192,7 @@ describe("the final-step reserve", () => {
   });
 
   test("web_search refuses on the last step too", async () => {
-    const { retrieval, budget, tools } = context();
+    const { retrieval, budget, refusals, tools } = context();
     budget.countStep();
     budget.countStep();
 
@@ -196,8 +202,27 @@ describe("the final-step reserve", () => {
     )) as { refused?: true; reason?: string };
 
     expect(result.refused).toBe(true);
-    expect(result.reason).toBe("final_step");
+    expect(result.reason).toBe("max_steps");
+    expect(refusals).toEqual(["max_steps"]);
     expect(retrieval.searches).toEqual([]);
+  });
+
+  test("names the resource that ran out, not just 'budget'", async () => {
+    const { budget, refusals, tools } = context({
+      ...LIMITS,
+      maxSteps: 8,
+      maxSearchCredits: 10,
+    });
+    budget.addSearchCredits(10);
+
+    const result = (await tools.web_search.execute!(
+      { query: "rate limit", topic: "general", maxResults: 5 },
+      runOpts,
+    )) as { reason?: string; instruction?: string };
+
+    expect(result.reason).toBe("max_search_credits");
+    expect(result.instruction).toContain("search-credit budget");
+    expect(refusals).toEqual(["max_search_credits"]);
   });
 
   test("still retrieves while a later step can read the result", async () => {
