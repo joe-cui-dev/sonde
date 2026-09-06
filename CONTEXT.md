@@ -84,7 +84,21 @@ is to hand the prose over and say what it measured.
 **Style**:
 A named register the prose is written in, such as reportage or commentary.
 Language is not part of a style: the same style can be written in any language.
+
+A style is a specification, not an adjective. "Vivid" reaches the writer as the
+average of everything ever called vivid, which is the most worn version of it;
+what constrains a sentence is a move the writer can perform and a failure it can
+be told to steer around. Every style names both, and `match` is the one with no
+register of its own — it takes
+the draft's, which is why it is the default under continue and expand, where a
+register chosen for the run would show at the seam it exists to hide.
 _Avoid_: Voice, tone, persona
+
+**House rules**:
+The habits that make prose read as machine-made — antithesis-and-uplift, the
+three-part list as a default rhythm, meta-commentary, surviving adverbs. They
+belong to no style, so they are stated once beside the brief rather than copied
+into every style entry, and they hold in every language.
 
 **Partial prose**:
 The text a writing run had produced when it was cut short by a timeout, an error,

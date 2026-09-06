@@ -126,7 +126,13 @@ export type EventSink = (event: RunEvent) => void;
 
 export type WriteMode = "new" | "continue" | "expand";
 export type WriteStyleId =
-  | "plain" | "literary" | "reportage" | "commentary" | "explainer" | "business";
+  | "match"
+  | "plain"
+  | "literary"
+  | "reportage"
+  | "commentary"
+  | "explainer"
+  | "business";
 export interface WriteResult {
   runId: string;
   mode: WriteMode;

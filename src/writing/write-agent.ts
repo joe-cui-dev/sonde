@@ -16,7 +16,7 @@ import type {
 } from "../types.js";
 import { countWords } from "./length.js";
 import { writePrompt } from "./prompts.js";
-import { WRITE_STYLES } from "./styles.js";
+import { defaultStyle, WRITE_STYLES } from "./styles.js";
 
 export interface RunWriteOptions {
   brief: string;
@@ -37,7 +37,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   const config = options.config ?? loadConfig();
   const brief = options.brief.trim();
   const mode = options.mode ?? "new";
-  const style = options.style ?? "plain";
+  const style = options.style ?? defaultStyle(mode);
   const limits: BudgetLimits = {
     maxSteps: config.maxSteps, maxUsd: config.maxUsd,
     maxTokens: config.maxTokens, maxSearchCredits: config.maxSearchCredits,

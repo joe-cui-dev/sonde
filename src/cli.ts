@@ -12,7 +12,7 @@ import { runWrite } from "./writing/write-agent.js";
 import { archivePath, saveProse } from "./writing/archive.js";
 import { WRITE_STYLES } from "./writing/styles.js";
 import { WritingPreviewRenderer } from "./writing-preview.js";
-import type { ResearchResult, RunEvent, WriteMode, WriteResult } from "./types.js";
+import type { ResearchResult, RunEvent, WriteMode, WriteResult, WriteStyleId } from "./types.js";
 
 const USAGE = `
 sonde — a web research agent
@@ -31,6 +31,7 @@ Options
       --mode <mode>      new (default), continue, or expand
       --in <file>        read a draft (stdin is used when piped)
       --style <style>    ${Object.keys(WRITE_STYLES).join(", ")}
+                         (default: match under continue and expand, plain under new)
       --lang <language>  language for writing
       --length <n>       words to write; under expand, the length of the
                          passage it returns
@@ -199,8 +200,11 @@ async function writeCommand(
 ): Promise<number> {
   const mode = (values.mode ?? "new") as WriteMode;
   if (!(["new", "continue", "expand"] as string[]).includes(mode)) throw new Error("--mode must be new, continue, or expand.");
-  const style = (values.style ?? "plain") as keyof typeof WRITE_STYLES;
-  if (!(style in WRITE_STYLES)) throw new Error(`Unknown style: ${style}`);
+  // Left undefined when the flag is absent, so the workflow can pick the default
+  // that suits the mode: a continue or expand run takes its register from the
+  // draft, and pinning "plain" here would have overridden that before it ran.
+  const style = typeof values.style === "string" ? (values.style as WriteStyleId) : undefined;
+  if (style !== undefined && !(style in WRITE_STYLES)) throw new Error(`Unknown style: ${style}`);
   const brief = args.join(" ").trim();
   if (!brief) throw new Error("A brief is required.");
   const hasDraft = typeof values.in === "string" || !process.stdin.isTTY;
@@ -208,6 +212,7 @@ async function writeCommand(
     ? readFileSync(values.in, "utf8")
     : !process.stdin.isTTY ? readFileSync(0, "utf8") : undefined;
   if (mode === "new" && hasDraft) throw new Error("new mode does not accept a draft.");
+  if (mode === "new" && style === "match") throw new Error("--style match needs a draft to match; use continue or expand.");
   if (mode !== "new" && !hasDraft) throw new Error(`${mode} mode requires a draft via --in or stdin.`);
   const length = parseLength(values.length);
   const config = loadConfig(); if (values.quiet) config.logLevel = "silent";

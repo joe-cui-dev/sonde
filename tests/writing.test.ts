@@ -107,6 +107,59 @@ describe("writing workflow seams", () => {
     expect(prompt).toContain("rather than summarizing");
   });
 
+  test("takes its register from the draft when continue and expand are given no style", async () => {
+    const model = scriptedModel([says("More of the same.")]);
+    const result = await runWrite({
+      brief: "Carry it on",
+      draft: "起风了。他把领子竖起来。",
+      mode: "continue",
+      config: testConfig(databasePath()),
+      model,
+    });
+    // Pinning a register on a run that writes into someone else's prose would
+    // show at exactly the seam it is supposed to hide.
+    expect(result.style).toBe("match");
+    expect(model.prompts[0]).toContain("Take the register from the draft itself");
+    expect(model.prompts[0]).toContain("the seam does not show");
+  });
+
+  test("falls back to plain only where there is no draft to take a register from", async () => {
+    const model = scriptedModel([says("A note.")]);
+    const result = await runWrite({ brief: "Write a note", config: testConfig(databasePath()), model });
+    expect(result.style).toBe("plain");
+    expect(model.prompts[0]).toContain("Style — Plain");
+  });
+
+  test("gives the writer moves and failures instead of an adjective", () => {
+    const prompt = writePrompt({ brief: "b", mode: "new", style: WRITE_STYLES.literary });
+    expect(prompt).toContain("Style — Literary");
+    expect(prompt).toContain("Do this:");
+    expect(prompt).toContain("Carry feeling through physical detail");
+    expect(prompt).toContain("Avoid:");
+    expect(prompt).toContain("Simile as decoration");
+  });
+
+  test("states the anti-autopilot rules once, whichever style is asked for", () => {
+    for (const style of [WRITE_STYLES.business, WRITE_STYLES.literary]) {
+      const prompt = writePrompt({ brief: "b", mode: "new", style });
+      expect(prompt).toContain("read as machine-made");
+      expect(prompt).toContain("not merely X, but Y");
+      expect(prompt).toContain("No meta-commentary");
+      // House rules belong to no style, so they are stated once, not per entry.
+      expect(prompt.match(/read as machine-made/gu)).toHaveLength(1);
+    }
+  });
+
+  test("restates the register after the draft, where the drift is worst", () => {
+    const prompt = writePrompt({
+      brief: "Open up the storm", draft: "A storm came.", mode: "expand",
+      style: WRITE_STYLES.literary, length: 3000,
+    });
+    const reminder = "Hold the style described above — Literary — from the first sentence to the last.";
+    expect(prompt.trimEnd().endsWith(reminder)).toBe(true);
+    expect(prompt.indexOf(reminder)).toBeGreaterThan(prompt.indexOf("A storm came."));
+  });
+
   test("says nothing about length when neither brief nor flag asks for one", () => {
     expect(writePrompt({ brief: "b", draft: "d", mode: "expand", style: WRITE_STYLES.plain }))
       .toContain("Choose an appropriate length");

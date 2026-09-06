@@ -1,19 +1,30 @@
 import type { WriteMode } from "../types.js";
-import type { WriteStyle } from "./styles.js";
+import { renderStyle, type WriteStyle } from "./styles.js";
 
-export interface WritePromptOptions { brief: string; draft?: string; mode: WriteMode; style: WriteStyle; language?: string; length?: number; }
+export interface WritePromptOptions {
+  brief: string;
+  draft?: string;
+  mode: WriteMode;
+  style: WriteStyle;
+  language?: string;
+  length?: number;
+}
 
 export function writePrompt(options: WritePromptOptions): string {
   return [
     "You are Sonde's writing workflow. Produce prose only: no citations, source list, preamble, or discussion of your process.",
     MODE_INSTRUCTIONS[options.mode],
     BRIEF_IS_BINDING,
-    options.style.instructions,
+    renderStyle(options.style),
+    HOUSE_RULES,
     lengthInstruction(options.mode, options.length),
     options.language ? `Write in ${options.language}.` : "",
     `Brief:\n${options.brief}`,
     options.draft ? `Draft:\n${options.draft}` : "",
-  ].filter(Boolean).join("\n\n");
+    STYLE_HOLDS(options.style),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**
@@ -29,6 +40,32 @@ const BRIEF_IS_BINDING =
   "The work is not finished while any requirement is unmet — check the brief again against what you have written before you stop. " +
   "Where the brief and these instructions disagree, the brief wins. " +
   "Do any planning silently: the output is the prose alone.";
+
+/**
+ * These are nobody's style. They are the shape prose takes when a model writes
+ * on autopilot, and they turn up in a business memo as readily as in a short
+ * story — which is why they sit here beside the brief instead of being copied
+ * into all seven style entries.
+ */
+const HOUSE_RULES =
+  "However the piece is written, keep clear of the habits that make prose read as machine-made. " +
+  "These hold in every language:\n" +
+  '- No antithesis-and-uplift — "not merely X, but Y" — and no paragraph that ends on a summarizing flourish.\n' +
+  "- No three-part list as a default rhythm; vary how sentences and paragraphs are built.\n" +
+  "- No meta-commentary: nothing that signposts what you are about to do, restates what you just did, " +
+  "or notes that something is worth noting.\n" +
+  "- Cut adverbs and intensifiers that survive their own deletion; let the verb carry the weight.\n" +
+  "- Ration em dashes, semicolons, and rhetorical questions so that each one is felt.\n" +
+  "- Reach for the exact word rather than the elevated one, and never for a cliché or a stock image.";
+
+/**
+ * A register drifts back toward the mean of everything the model has read, and
+ * the further a piece runs the further it drifts — which under expand, where
+ * the length is a floor, is the whole of the output. One line last, where it is
+ * closest to the first word written, costs almost nothing and pulls it back.
+ */
+const STYLE_HOLDS = (style: WriteStyle): string =>
+  `Hold the style described above — ${style.name} — from the first sentence to the last.`;
 
 const MODE_INSTRUCTIONS: Record<WriteMode, string> = {
   new: "Write a complete, finished piece from the brief.",
@@ -57,8 +94,10 @@ const MODE_INSTRUCTIONS: Record<WriteMode, string> = {
  */
 function lengthInstruction(mode: WriteMode, length?: number): string {
   if (!length) return "Choose an appropriate length for the brief.";
-  const unit = "Count characters rather than words when writing in Chinese, Japanese, or Korean.";
-  const briefWins = "If the brief states its own length, that figure governs instead.";
+  const unit =
+    "Count characters rather than words when writing in Chinese, Japanese, or Korean.";
+  const briefWins =
+    "If the brief states its own length, that figure governs instead.";
   return mode === "expand"
     ? `The passage must run to at least ${length} words. ` +
         "Do not stop short of it: if it is running out before the count is met, " +

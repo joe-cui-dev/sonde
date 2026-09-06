@@ -102,16 +102,24 @@ the floor it was given, the run still returns its prose and says so.
   — expand the saved file again to develop it further
 ```
 
-Styles are registers, not author imitations:
+Styles are registers, not author imitations. Each one reaches the writer as a
+specification rather than an adjective — the moves that produce the register,
+and the failure it falls into:
 
 | Style | Use |
 | --- | --- |
-| `plain` | direct, clear prose |
+| `match` | take the register from the draft (default under `continue` and `expand`) |
+| `plain` | direct, clear prose (default under `new`) |
 | `literary` | controlled imagery and rhythm |
 | `reportage` | scene-led journalistic prose |
 | `commentary` | a considered argument |
 | `explainer` | progressive explanation |
 | `business` | concise, decision-oriented writing |
+
+Leave `--style` off when continuing or expanding: `match` reads the register out
+of the draft, and any other choice would show at the seam. Every style also
+carries a shared set of house rules against the habits that make prose read as
+machine-made, in whatever language it is written.
 
 Every run saves its prose to a timestamped markdown file under
 `SONDE_WRITING_DIR` (`.sonde/writing`, gitignored) and prints the path last, so
