@@ -11,7 +11,7 @@ import {
 import { z } from "zod";
 
 import { loadConfig, type Config } from "../config.js";
-import { BudgetTracker } from "../budget/budget.js";
+import { BudgetTracker, readModelUsage } from "../budget/budget.js";
 import { createRetrieval, type Retrieval } from "../providers/index.js";
 import { openDb } from "../store/db.js";
 import { PageCache } from "../store/cache.js";
@@ -222,7 +222,7 @@ export async function runResearch(
       ...(options.signal ? { abortSignal: options.signal } : {}),
       onStepEnd: (event) => {
         budget.countStep();
-        budget.addModelUsage(readUsage(event));
+        budget.addModelUsage(readModelUsage(event));
         const text = typeof event.text === "string" ? event.text.trim() : "";
         if (text) stepTexts.push(text);
         emit({
@@ -329,7 +329,7 @@ export async function runResearch(
         if (!usageRecorded && usage.status === "fulfilled") {
           usageRecorded = true;
           budget.addModelUsage(
-            readUsage({
+            readModelUsage({
               usage: usage.value,
               providerMetadata:
                 providerMetadata.status === "fulfilled"
@@ -481,30 +481,6 @@ export function writerModelSettings(config: Config): {
             },
           },
         }),
-  };
-}
-
-/** Pulls token counts and — when OpenRouter reports it — real dollars. */
-function readUsage(source: unknown): {
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-} {
-  const s = source as {
-    usage?: { inputTokens?: number; outputTokens?: number };
-    totalUsage?: { inputTokens?: number; outputTokens?: number };
-    providerMetadata?: Record<string, unknown>;
-  };
-
-  const usage = s.totalUsage ?? s.usage ?? {};
-  const openrouter = s.providerMetadata?.["openrouter"] as
-    | { usage?: { cost?: number; totalCost?: number } }
-    | undefined;
-
-  return {
-    inputTokens: usage.inputTokens ?? 0,
-    outputTokens: usage.outputTokens ?? 0,
-    costUsd: openrouter?.usage?.cost ?? openrouter?.usage?.totalCost ?? 0,
   };
 }
 

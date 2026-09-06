@@ -44,5 +44,9 @@ export function truncate(s: string, max: number): string {
 }
 
 export function usd(n: number): string {
+  // A one-turn writing run costs tens of microdollars. Four decimals rendered
+  // every one of them as "$0.0000", which reads as "this was free" rather than
+  // "this was cheap", so spend below a hundredth of a cent gets more digits.
+  if (n > 0 && n < 0.0001) return `$${n.toFixed(6)}`;
   return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
 }

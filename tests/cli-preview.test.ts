@@ -1,6 +1,7 @@
 import { describe, expect, test } from "@jest/globals";
 
 import { ReportPreviewRenderer } from "../src/cli-preview.js";
+import { WritingPreviewRenderer } from "../src/writing-preview.js";
 
 function output(tty = true) {
   let text = "";
@@ -83,6 +84,32 @@ describe("ReportPreviewRenderer", () => {
     renderer.update({ report: "Must not leak into a pipe." });
     renderer.fail("failure");
 
+    expect(stderr.text).toBe("");
+  });
+});
+
+describe("WritingPreviewRenderer", () => {
+  test("reports having streamed once prose reaches an interactive stream", () => {
+    const stderr = output();
+    const renderer = new WritingPreviewRenderer(stderr);
+
+    expect(renderer.streamed).toBe(false);
+    renderer.update("");
+    expect(renderer.streamed).toBe(false);
+
+    renderer.update("The first line.");
+
+    expect(renderer.streamed).toBe(true);
+    expect(stderr.text).toBe("The first line.");
+  });
+
+  test("reports nothing streamed into a pipe, so the caller still prints it", () => {
+    const stderr = output(false);
+    const renderer = new WritingPreviewRenderer(stderr);
+
+    renderer.update("Must not leak into a pipe.");
+
+    expect(renderer.streamed).toBe(false);
     expect(stderr.text).toBe("");
   });
 });

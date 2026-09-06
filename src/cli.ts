@@ -204,13 +204,38 @@ async function writeCommand(
   if (mode === "new" && hasDraft) throw new Error("new mode does not accept a draft.");
   if (mode !== "new" && !hasDraft) throw new Error(`${mode} mode requires a draft via --in or stdin.`);
   const config = loadConfig(); if (values.quiet) config.logLevel = "silent";
+  const log = createLogger(config.logLevel);
   const controller = new AbortController(); process.once("SIGINT", () => controller.abort());
   const preview = new WritingPreviewRenderer(process.stderr);
   const result = await runWrite({ brief, draft, mode, style, language: typeof values.lang === "string" ? values.lang : undefined, length: typeof values.length === "string" ? Number(values.length) : undefined, config, signal: controller.signal, onEvent: (event) => { if (!values.quiet && event.type === "text_delta") preview.update(event.delta); } });
   const output = values.json ? JSON.stringify(result, null, 2) + "\n" : writeText(result);
-  if (typeof values.out === "string") writeFileSync(values.out, output, "utf8"); else await writeStdout(output);
+
+  // The stream already put this prose on the terminal, character by character;
+  // printing the finished text to stdout would show the same piece twice. A
+  // file, a pipe, or --json still gets the whole thing.
+  const alreadyOnScreen =
+    preview.streamed && !values.json && process.stdout.isTTY === true;
+
+  if (typeof values.out === "string") writeFileSync(values.out, output, "utf8");
+  else if (!alreadyOnScreen) await writeStdout(output);
   if (result.complete) preview.complete(); else preview.fail(lastWriteWarning(result));
+  logWriteUsage(result, log);
   return result.complete ? 0 : 2;
+}
+
+/** What the run cost, on stderr, so stdout stays exactly the prose. */
+function logWriteUsage(
+  result: WriteResult,
+  log: ReturnType<typeof createLogger>,
+): void {
+  const s = result.usage;
+  log.info(
+    log.c.dim(
+      `${s.totalTokens.toLocaleString()} tokens ` +
+        `(${s.inputTokens.toLocaleString()} in · ${s.outputTokens.toLocaleString()} out) · ` +
+        `${usd(s.usd)} · ${(s.elapsedMs / 1000).toFixed(1)}s · stopped: ${result.stoppedBy}`,
+    ),
+  );
 }
 
 function writeText(result: WriteResult): string { return `${result.text ?? ""}${result.complete ? "" : "\n\n[INCOMPLETE — " + lastWriteWarning(result) + "]"}\n`; }

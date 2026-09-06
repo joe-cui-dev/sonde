@@ -156,3 +156,27 @@ export class BudgetTracker {
     ].join(" · ");
   }
 }
+
+/** Pulls token counts and — when OpenRouter reports it — real dollars. */
+export function readModelUsage(source: unknown): {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+} {
+  const s = source as {
+    usage?: { inputTokens?: number; outputTokens?: number };
+    totalUsage?: { inputTokens?: number; outputTokens?: number };
+    providerMetadata?: Record<string, unknown>;
+  };
+
+  const usage = s.totalUsage ?? s.usage ?? {};
+  const openrouter = s.providerMetadata?.["openrouter"] as
+    | { usage?: { cost?: number; totalCost?: number } }
+    | undefined;
+
+  return {
+    inputTokens: usage.inputTokens ?? 0,
+    outputTokens: usage.outputTokens ?? 0,
+    costUsd: openrouter?.usage?.cost ?? openrouter?.usage?.totalCost ?? 0,
+  };
+}

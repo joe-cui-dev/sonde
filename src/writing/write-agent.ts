@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { streamText, type LanguageModel } from "ai";
-import { BudgetTracker } from "../budget/budget.js";
+import { BudgetTracker, readModelUsage } from "../budget/budget.js";
 import { loadConfig, type Config } from "../config.js";
 import { openDb } from "../store/db.js";
 import { RunStore } from "../store/runs.js";
@@ -88,7 +88,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     }
     const [usage, metadata] = await Promise.all([result.usage, result.providerMetadata]);
     budget.countStep();
-    budget.addModelUsage(readUsage({ usage, providerMetadata: metadata }));
+    budget.addModelUsage(readModelUsage({ usage, providerMetadata: metadata }));
     if (streamError) throw streamError;
     if (timeout.aborted || options.signal?.aborted) throw signal.reason;
   } catch (error) {
@@ -112,12 +112,4 @@ const DEFAULT_LENGTH = 800;
 function outputTokenLimit(length: number | undefined, mode: WriteMode): number {
   const target = length ?? DEFAULT_LENGTH;
   return Math.max(128, Math.ceil(mode === "expand" ? target * 800 : target * 1.5));
-}
-
-function readUsage(value: { usage: any; providerMetadata: any }) {
-  return {
-    inputTokens: value.usage?.inputTokens?.total,
-    outputTokens: value.usage?.outputTokens?.total,
-    costUsd: value.providerMetadata?.openrouter?.usage?.cost,
-  };
 }
