@@ -79,6 +79,19 @@ count. Styles are registers, not author imitations:
 | `explainer` | progressive explanation |
 | `business` | concise, decision-oriented writing |
 
+Every run saves its prose to a timestamped markdown file under
+`SONDE_WRITING_DIR` (`.sonde/writing`, gitignored) and prints the path last, so
+the next round is a copy and a paste:
+
+```
+→ saved to .sonde/writing/20260906-212410-new-run_ab12cd34.md
+  sonde write "<what to do next>" --mode continue --in .sonde/writing/20260906-212410-new-run_ab12cd34.md
+```
+
+The file holds the piece and nothing else — no brief, no usage line — because
+`--in` reads it straight back as the draft. `--out` and `--json` still work and
+are unaffected; `--json` also reports the saved path as `savedTo`.
+
 If a provider error, timeout, or interrupt occurs after prose has begun,
 Sonde delivers that partial prose with an incomplete marker and exits with code
 2. A partial draft can still be useful; unlike a partial research report, it
@@ -98,6 +111,8 @@ src/
     index.ts            provider selection (one switch)
   tools/index.ts        web_search, read_pages (budget-aware)
   budget/budget.ts      steps · tokens · dollars · credits · wall time
+  writing/              one-turn prose: write-agent, prompts, styles
+    archive.ts          saves each piece to .sonde/writing/<timestamp>-<mode>-<run id>.md
   store/                sqlite: page cache, run records, event trace
   telemetry/index.ts    AI SDK telemetry integration → sqlite
   util/url.ts           canonicalization + dedupe

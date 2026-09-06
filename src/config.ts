@@ -112,6 +112,8 @@ const ConfigSchema = z.object({
   extractDepth: z.enum(["basic", "advanced"]).default("basic"),
 
   dbPath: z.string().default(".sonde/sonde.db"),
+  /** Where writing runs keep their prose. Under .sonde/, which is gitignored. */
+  writingDir: z.string().default(".sonde/writing"),
   cacheTtlHours: num(168),
 
   logLevel: z.enum(["silent", "info", "debug"]).default("info"),
@@ -153,6 +155,7 @@ export function loadConfig(
     searchDepth: env.SONDE_SEARCH_DEPTH,
     extractDepth: env.SONDE_EXTRACT_DEPTH,
     dbPath: env.SONDE_DB_PATH,
+    writingDir: env.SONDE_WRITING_DIR,
     cacheTtlHours: env.SONDE_CACHE_TTL_HOURS,
     logLevel: env.SONDE_LOG_LEVEL,
     appUrl: env.SONDE_APP_URL,

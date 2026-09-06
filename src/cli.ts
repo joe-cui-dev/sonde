@@ -2,13 +2,14 @@
 import { parseArgs } from "node:util";
 import { readFileSync, writeFileSync } from "node:fs";
 import { runResearch } from "./agent/research-agent.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, type Config } from "./config.js";
 import { openDb } from "./store/db.js";
 import { RunStore } from "./store/runs.js";
 import { preflight } from "./preflight.js";
 import { createLogger, usd } from "./util/log.js";
 import { ReportPreviewRenderer } from "./cli-preview.js";
 import { runWrite } from "./writing/write-agent.js";
+import { archivePath, saveProse } from "./writing/archive.js";
 import { WRITE_STYLES } from "./writing/styles.js";
 import { WritingPreviewRenderer } from "./writing-preview.js";
 import type { ResearchResult, RunEvent, WriteMode, WriteResult } from "./types.js";
@@ -33,6 +34,10 @@ Options
       --lang <language>  language for writing
       --length <n>       words for new/continue; multiplier for expand
   -h, --help             show this
+
+Every write run also saves its prose under SONDE_WRITING_DIR (.sonde/writing,
+which is gitignored) and prints the path — pass it back with --in to continue
+or expand the piece.
 `;
 
 async function main(): Promise<number> {
@@ -208,7 +213,8 @@ async function writeCommand(
   const controller = new AbortController(); process.once("SIGINT", () => controller.abort());
   const preview = new WritingPreviewRenderer(process.stderr);
   const result = await runWrite({ brief, draft, mode, style, language: typeof values.lang === "string" ? values.lang : undefined, length: typeof values.length === "string" ? Number(values.length) : undefined, config, signal: controller.signal, onEvent: (event) => { if (!values.quiet && event.type === "text_delta") preview.update(event.delta); } });
-  const output = values.json ? JSON.stringify(result, null, 2) + "\n" : writeText(result);
+  const savedTo = archiveProse(result, config, log);
+  const output = values.json ? JSON.stringify({ ...result, savedTo }, null, 2) + "\n" : writeText(result);
 
   // The stream already put this prose on the terminal, character by character;
   // printing the finished text to stdout would show the same piece twice. A
@@ -220,7 +226,45 @@ async function writeCommand(
   else if (!alreadyOnScreen) await writeStdout(output);
   if (result.complete) preview.complete(); else preview.fail(lastWriteWarning(result));
   logWriteUsage(result, log);
+  if (savedTo) logSavedPath(savedTo, result.complete, log);
   return result.complete ? 0 : 2;
+}
+
+/**
+ * Keeps the finished prose on disk under the gitignored writing directory and
+ * hands back the path, so the next run can be pointed straight at it. Failing
+ * to save is reported and survived: the piece itself has already been paid for
+ * and is on its way to stdout.
+ */
+function archiveProse(
+  result: WriteResult,
+  config: Config,
+  log: ReturnType<typeof createLogger>,
+): string | null {
+  if (!result.text) return null;
+  const path = archivePath(config.writingDir, result.mode, result.runId);
+  try {
+    saveProse(path, result.text);
+    return path;
+  } catch (error) {
+    log.warn(`the piece could not be saved to ${path}: ${errorMessage(error)}`);
+    return null;
+  }
+}
+
+/** The last thing on the terminal, because it is the thing worth copying. */
+function logSavedPath(
+  path: string,
+  complete: boolean,
+  log: ReturnType<typeof createLogger>,
+): void {
+  log.info(
+    log.c.green(`\n→ saved to ${path}`) +
+      (complete ? "" : log.c.dim(" (partial prose)")),
+  );
+  log.info(
+    log.c.dim(`  sonde write "<what to do next>" --mode continue --in ${path}`),
+  );
 }
 
 /** What the run cost, on stderr, so stdout stays exactly the prose. */

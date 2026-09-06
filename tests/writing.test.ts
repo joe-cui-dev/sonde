@@ -1,6 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import { loadConfig } from "../src/config.js";
 import { openDb } from "../src/store/db.js";
 import { RunStore } from "../src/store/runs.js";
 import { runWrite } from "../src/writing/write-agent.js";
+import { archivePath, saveProse } from "../src/writing/archive.js";
 import { erroringStreamModel, says, scriptedModel, testConfig } from "./helpers/mock.js";
 
 function databasePath() { return join(mkdtempSync(join(tmpdir(), "sonde-write-")), "sonde.db"); }
@@ -38,6 +39,21 @@ describe("writing workflow seams", () => {
     const result = await runWrite({ brief: "Write", config: testConfig(databasePath()), model: erroringStreamModel("upstream stopped", "Useful beginning.") });
     expect(result).toMatchObject({ text: "Useful beginning.", complete: false, stoppedBy: "error" });
     expect(result.warnings.join(" ")).toContain("upstream stopped");
+  });
+
+  test("names a saved piece by local time, mode, and run id", () => {
+    const at = new Date(2026, 8, 6, 21, 2, 33);
+    expect(archivePath(".sonde/writing", "new", "run_ab12cd34", at))
+      .toBe(".sonde/writing/20260906-210233-new-run_ab12cd34.md");
+    // The brief never reaches the filename, whatever it says or which script
+    // it is in — the run id ties the file to its row in run history.
+    expect(archivePath("w", "expand", "run_x", at)).toBe("w/20260906-210233-expand-run_x.md");
+  });
+
+  test("saves the prose alone, so continue can read the file back as a draft", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "sonde-archive-")), "deep", "piece.md");
+    saveProse(path, "The tide came in.");
+    expect(readFileSync(path, "utf8")).toBe("The tide came in.\n");
   });
 
   test("uses an independent writing model and reasoning default", () => {

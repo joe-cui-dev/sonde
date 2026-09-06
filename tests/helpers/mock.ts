@@ -278,6 +278,7 @@ export function testConfig(dbPath: string): Config {
     searchDepth: "basic",
     extractDepth: "basic",
     dbPath,
+    writingDir: `${dbPath}-writing`,
     cacheTtlHours: 168,
     logLevel: "silent",
     appUrl: "https://example.test",
