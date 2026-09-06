@@ -21,6 +21,30 @@ describe("loadConfig", () => {
     expect(config.logLevel).toBe("info");
   });
 
+  test("caps the writer's reasoning by default", () => {
+    // Left to the provider, one run spent 22,301 reasoning tokens on a report
+    // whose text was 2,469 tokens. The cap is the default, not opt-in.
+    expect(loadConfig(KEYS).writerReasoningEffort).toBe("low");
+    expect(
+      loadConfig({ ...KEYS, SONDE_WRITER_REASONING_EFFORT: "" })
+        .writerReasoningEffort,
+    ).toBe("low");
+  });
+
+  test("the reasoning cap can be retuned or handed back to the provider", () => {
+    expect(
+      loadConfig({ ...KEYS, SONDE_WRITER_REASONING_EFFORT: "high" })
+        .writerReasoningEffort,
+    ).toBe("high");
+    expect(
+      loadConfig({ ...KEYS, SONDE_WRITER_REASONING_EFFORT: "default" })
+        .writerReasoningEffort,
+    ).toBe("default");
+    expect(() =>
+      loadConfig({ ...KEYS, SONDE_WRITER_REASONING_EFFORT: "very hard" }),
+    ).toThrow(/writerReasoningEffort/);
+  });
+
   test("an explicit value still wins over the default", () => {
     expect(loadConfig({ ...KEYS, SONDE_MAX_USD: "2.5" }).maxUsd).toBe(2.5);
     expect(loadConfig({ ...KEYS, SONDE_MAX_USD: " 2.5 " }).maxUsd).toBe(2.5);

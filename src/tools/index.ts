@@ -184,35 +184,38 @@ export function createTools(ctx: ToolContext) {
         if (urls.length === 0)
           return { error: "No valid http(s) URLs supplied." };
 
+        // Decide the budget question before announcing anything. A refusal
+        // that has already emitted tool_start leaves a call opened and never
+        // closed in the event stream, which reads as a hang.
+        const { hits: cached, misses } = ctx.cache.partition(urls);
+        const blocked =
+          misses.length > 0 ? ctx.budget.retrievalBlockedBy() : null;
+        if (blocked) ctx.onRefusal(blocked);
+        if (blocked && cached.length === 0) return refusal(blocked);
+
         const started = Date.now();
         ctx.emit({ type: "tool_start", tool: "read_pages", input });
-
-        const { hits: cached, misses } = ctx.cache.partition(urls);
 
         let fetched: typeof cached = [];
         let failures: Array<{ url: string; error: string }> = [];
 
-        if (misses.length > 0) {
-          const blocked = ctx.budget.retrievalBlockedBy();
-          if (blocked) {
-            ctx.onRefusal(blocked);
-            if (cached.length === 0) return refusal(blocked);
-            failures = misses.map((url) => ({
-              url,
-              error:
-                blocked === "max_steps"
-                  ? "skipped: last step of the run, you would never read it"
-                  : "skipped: retrieval budget spent",
-            }));
-          } else {
-            const outcome = await ctx.retrieval.fetcher.fetch(misses, {
-              ...(input.query ? { query: input.query } : {}),
-            });
-            ctx.budget.addSearchCredits(outcome.creditsUsed);
-            fetched = outcome.pages;
-            failures = outcome.failures;
-            for (const page of outcome.pages) ctx.cache.set(page);
-          }
+        if (blocked) {
+          // Cached pages are free, so they are still served; the rest is not.
+          failures = misses.map((url) => ({
+            url,
+            error:
+              blocked === "max_steps"
+                ? "skipped: last step of the run, you would never read it"
+                : "skipped: retrieval budget spent",
+          }));
+        } else if (misses.length > 0) {
+          const outcome = await ctx.retrieval.fetcher.fetch(misses, {
+            ...(input.query ? { query: input.query } : {}),
+          });
+          ctx.budget.addSearchCredits(outcome.creditsUsed);
+          fetched = outcome.pages;
+          failures = outcome.failures;
+          for (const page of outcome.pages) ctx.cache.set(page);
         }
 
         const all = [...cached, ...fetched];

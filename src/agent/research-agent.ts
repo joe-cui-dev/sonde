@@ -131,12 +131,19 @@ export async function runResearch(
     openrouter!(config.plannerModel, { usage: { include: true } });
   const writerModel =
     options.models?.writer ??
-    openrouter!(config.writerModel, { usage: { include: true } });
+    openrouter!(config.writerModel, writerModelSettings(config));
 
-  // The limit that first turned a tool away, if any. This is the ground truth
-  // for "the run was cut short": with a step reserved for the wrap-up, a
-  // truncated run now ends with the model politely concluding, which looks
-  // exactly like a run that finished because it was done.
+  const warnings: string[] = [];
+
+  /** Records a warning once, both for the caller and for the event stream. */
+  const warn = (message: string): void => {
+    warnings.push(message);
+    emit({ type: "warning", message });
+  };
+
+  // The limit that first turned a tool away, if any — one half of the ground
+  // truth for "this run was cut short". A refusal is a real event, so it is
+  // surfaced rather than left to be inferred from the stop reason.
   let retrievalCutShortBy: StopReason | null = null;
 
   const tools = createTools({
@@ -147,9 +154,24 @@ export async function runResearch(
     emit,
     onSource: () => {},
     onRefusal: (reason) => {
-      retrievalCutShortBy ??= reason;
+      if (retrievalCutShortBy) return;
+      retrievalCutShortBy = reason;
+      warn(
+        `retrieval was cut short by ${reason} — the report was written from what had already been gathered`,
+      );
     },
   });
+
+  // The other half. Tools are switched off for the final step so the model can
+  // never spend it on a call whose result it will not live to read; that step
+  // goes to writing findings instead.
+  //
+  // Reaching that step is itself evidence the run was truncated: the loop only
+  // continues past a step that called a tool, so a model still working one step
+  // earlier was not finished. With tools switched off it can no longer say so,
+  // which is why the clamp is recorded here rather than inferred from
+  // finishReason afterwards.
+  let forcedWrapUp = false;
 
   const agent = new ToolLoopAgent({
     id: "sonde-research",
@@ -158,13 +180,22 @@ export async function runResearch(
     tools,
     toolChoice: "auto",
     stopWhen: [stepCountIs(limits.maxSteps), () => budget.exhausted],
+    prepareStep: ({ stepNumber }) => {
+      if (stepNumber < limits.maxSteps - 1) return {};
+      if (!forcedWrapUp) {
+        forcedWrapUp = true;
+        warn(
+          `hit the ${limits.maxSteps}-step limit while still gathering — the last step was reserved for writing findings`,
+        );
+      }
+      return { toolChoice: "none" };
+    },
     telemetry: {
       functionId: "sonde.research",
       integrations: [createRunTelemetry({ store, runId, phase: "research" })],
     },
   });
 
-  const warnings: string[] = [];
   let loopError: string | null = null;
   let finishedNaturally = false;
   let notes = "";
@@ -205,12 +236,11 @@ export async function runResearch(
     const message = error instanceof Error ? error.message : String(error);
     loopError = message;
     notes = stepTexts.join("\n\n");
-    warnings.push(
+    warn(
       notes
         ? `research loop failed after ${stepTexts.length} step(s), synthesising from partial notes: ${message}`
         : `research loop failed before producing any notes: ${message}`,
     );
-    emit({ type: "warning", message });
     logger.error(message);
   }
 
@@ -221,7 +251,7 @@ export async function runResearch(
     ? "error"
     : (budget.check() ??
       retrievalCutShortBy ??
-      (finishedNaturally ? "complete" : "max_steps"));
+      (forcedWrapUp || !finishedNaturally ? "max_steps" : "complete"));
 
   // ── Synthesis ───────────────────────────────────────────────────────────────
   // Deliberately a separate call. The writer sees the notes plus the actual text
@@ -240,14 +270,13 @@ export async function runResearch(
   if (notes.trim().length === 0 && evidence.length === 0) {
     // Nothing to say and nothing to say it from — fall through.
   } else if (evidence.length === 0) {
-    warnings.push(
+    warn(
       "No source was successfully read — nothing to cite, so no report was written.",
     );
   } else if (deadlineMs <= 0) {
-    warnings.push(
+    warn(
       `No time left in the ${(limits.maxWallMs / 1000).toFixed(0)}s wall-clock budget to write the report — the notes and sources below are what the run gathered.`,
     );
-    emit({ type: "warning", message: warnings.at(-1)! });
   } else if (notes.trim().length > 0) {
     emit({ type: "phase", phase: "synthesis" });
     const deadline = AbortSignal.timeout(deadlineMs);
@@ -282,17 +311,15 @@ export async function runResearch(
         evidence,
       );
       report = validated.report;
-      warnings.push(...validated.warnings);
-      for (const w of validated.warnings) emit({ type: "warning", message: w });
+      for (const w of validated.warnings) warn(w);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const outOfTime = deadline.aborted && !options.signal?.aborted;
-      warnings.push(
+      warn(
         outOfTime
           ? `synthesis ran out of wall-clock budget after ${(deadlineMs / 1000).toFixed(1)}s and was aborted — no report was written`
           : `synthesis failed: ${message}`,
       );
-      emit({ type: "warning", message: warnings.at(-1)! });
     }
   }
 
@@ -321,6 +348,27 @@ export async function runResearch(
   db.close();
 
   return result;
+}
+
+/**
+ * Provider settings for the writer.
+ *
+ * The writer transcribes and quote-checks; it does not deliberate. Left to the
+ * provider's default, one run spent 22,301 reasoning tokens to produce 2,469
+ * tokens of report — eight minutes and five times the cost of an identical
+ * result. Runs that happened to emit no reasoning at all still matched every
+ * quote exactly, so a cap here has no observed downside. Set
+ * SONDE_WRITER_REASONING_EFFORT=default to hand the decision back.
+ */
+export function writerModelSettings(config: Config): {
+  usage: { include: true };
+  reasoning?: { effort: Exclude<Config["writerReasoningEffort"], "default"> };
+} {
+  const effort = config.writerReasoningEffort;
+  return {
+    usage: { include: true },
+    ...(effort === "default" ? {} : { reasoning: { effort } }),
+  };
 }
 
 /** Pulls token counts and — when OpenRouter reports it — real dollars. */

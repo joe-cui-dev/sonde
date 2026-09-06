@@ -150,17 +150,19 @@ describe("the final-step reserve", () => {
     const retrieval = fakeRetrieval([page]);
     const budget = new BudgetTracker(limits);
     const refusals: string[] = [];
+    const events: string[] = [];
     return {
       registry,
       retrieval,
       budget,
       refusals,
+      events,
       tools: createTools({
         retrieval,
         registry,
         cache: new PageCache(db, 3_600_000),
         budget,
-        emit: () => {},
+        emit: (e) => events.push(e.type),
         onSource: () => {},
         onRefusal: (reason) => refusals.push(reason),
       }),
@@ -358,5 +360,95 @@ describe("citable ids", () => {
     expect(registry.all()[0]!.id).toBe("S1");
     expect(registry.read()).toHaveLength(0);
     expect(registry.citableId(registry.all()[0]!)).toBeNull();
+  });
+});
+
+describe("the event stream", () => {
+  let dir: string;
+  let db: Db;
+
+  const page: FakePage = {
+    url: "https://example.test/spec",
+    title: "The Spec",
+    text: "The limit is 42 requests per second.",
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sonde-events-"));
+    db = openDb(join(dir, "test.db"));
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function context(limits = { ...LIMITS, maxSteps: 3 }) {
+    const events: string[] = [];
+    const budget = new BudgetTracker(limits);
+    return {
+      budget,
+      events,
+      tools: createTools({
+        retrieval: fakeRetrieval([page]),
+        registry: new SourceRegistry(),
+        cache: new PageCache(db, 3_600_000),
+        budget,
+        emit: (e) => events.push(e.type),
+        onSource: () => {},
+        onRefusal: () => {},
+      }),
+    };
+  }
+
+  const runOpts = { toolCallId: "t1", messages: [] } as never;
+
+  test("a refused read_pages opens no call it will not close", async () => {
+    const { budget, events, tools } = context();
+    budget.countStep();
+    budget.countStep(); // final step: retrieval is blocked
+
+    await tools.read_pages.execute!({ urls: [page.url] }, runOpts);
+
+    // Nothing announced at all, rather than a tool_start with no tool_end —
+    // which in a real run reads as the tool hanging.
+    expect(events).toEqual([]);
+  });
+
+  test("a refused web_search opens no call either", async () => {
+    const { budget, events, tools } = context();
+    budget.countStep();
+    budget.countStep();
+
+    await tools.web_search.execute!(
+      { query: "rate limit", topic: "general" as const, maxResults: 5 },
+      runOpts,
+    );
+
+    expect(events).toEqual([]);
+  });
+
+  test("every announced call is closed", async () => {
+    const { budget, events, tools } = context({ ...LIMITS, maxSteps: 8 });
+
+    await tools.web_search.execute!(
+      { query: "rate limit", topic: "general" as const, maxResults: 5 },
+      runOpts,
+    );
+    await tools.read_pages.execute!({ urls: [page.url] }, runOpts);
+
+    // A cached read on a step where fetching is blocked still does real work,
+    // so it announces and closes like any other call.
+    budget.countStep();
+    budget.countStep();
+    budget.countStep();
+    budget.countStep();
+    budget.countStep();
+    budget.countStep();
+    budget.countStep();
+    await tools.read_pages.execute!({ urls: [page.url] }, runOpts);
+
+    expect(events.filter((e) => e === "tool_start")).toHaveLength(3);
+    expect(events.filter((e) => e === "tool_end")).toHaveLength(3);
   });
 });

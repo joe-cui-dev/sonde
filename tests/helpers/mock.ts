@@ -58,10 +58,15 @@ export function calls(
 export function scriptedModel(steps: Array<GenerateResult | Error>) {
   let index = 0;
   const prompts: string[] = [];
+  // What each call was told about tool use. A mock cannot be made to obey
+  // toolChoice, but a test can still check the instruction reached the model.
+  const toolChoices: Array<string | undefined> = [];
   const model = new MockLanguageModelV4({
     modelId: "mock/planner",
     doGenerate: async (options) => {
       prompts.push(flattenPrompt(options.prompt));
+      const choice = (options as { toolChoice?: { type?: string } }).toolChoice;
+      toolChoices.push(choice?.type);
       const step = steps[index];
       index += 1;
       if (step === undefined)
@@ -72,6 +77,7 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
   });
   return Object.assign(model, {
     prompts,
+    toolChoices,
     get callCount() {
       return index;
     },
@@ -185,6 +191,7 @@ export function testConfig(dbPath: string): Config {
     tavilyApiKey: "tvly-test",
     plannerModel: "mock/planner",
     writerModel: "mock/writer",
+    writerReasoningEffort: "low",
     maxSteps: 8,
     maxUsd: 1,
     maxTokens: 400_000,

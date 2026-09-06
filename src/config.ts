@@ -36,6 +36,15 @@ const ConfigSchema = z.object({
   plannerModel: z.string().default("z-ai/glm-5.3-flash"),
   writerModel: z.string().default("z-ai/glm-5.3-flash"),
 
+  /**
+   * How hard the writer is allowed to think. "default" sends nothing and lets
+   * the provider decide — which is how one run spent 22,301 reasoning tokens to
+   * produce 2,469 tokens of report.
+   */
+  writerReasoningEffort: z
+    .enum(["default", "none", "minimal", "low", "medium", "high", "xhigh"])
+    .default("low"),
+
   maxSteps: num(16),
   maxUsd: num(1),
   maxTokens: num(400_000),
@@ -74,6 +83,7 @@ export function loadConfig(
     tavilyApiKey: env.TAVILY_API_KEY,
     plannerModel: env.SONDE_PLANNER_MODEL,
     writerModel: env.SONDE_WRITER_MODEL,
+    writerReasoningEffort: env.SONDE_WRITER_REASONING_EFFORT,
     maxSteps: env.SONDE_MAX_STEPS,
     maxUsd: env.SONDE_MAX_USD,
     maxTokens: env.SONDE_MAX_TOKENS,

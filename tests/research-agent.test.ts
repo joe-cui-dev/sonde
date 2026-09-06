@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runResearch } from "../src/agent/research-agent.js";
+import {
+  runResearch,
+  writerModelSettings,
+} from "../src/agent/research-agent.js";
 import { openDb } from "../src/store/db.js";
 import type { RunEvent } from "../src/types.js";
 import {
@@ -333,23 +336,47 @@ describe("runResearch (offline)", () => {
     ]);
   });
 
-  test("calls a run that wrapped up on its last allowed step complete", async () => {
+  test("calls a run that finished with steps to spare complete", async () => {
+    const planner = healthyPlanner();
     const writer = scriptedModel([says(JSON.stringify(REPORT))]);
 
-    // Three steps allowed, three steps used — but the model chose to stop, and
-    // its final step needed no tool. Nothing was cut short.
     const result = await runResearch({
       question: "What is the rate limit?",
-      config: { ...testConfig(dbPath), maxSteps: 3 },
+      config: { ...testConfig(dbPath), maxSteps: 5 },
       retrieval: fakeRetrieval(PAGES),
-      models: { planner: healthyPlanner(), writer },
+      models: { planner, writer },
     });
 
     expect(result.usage.steps).toBe(3);
     expect(result.stoppedBy).toBe("complete");
     expect(result.usage.hit).toBeNull();
+    expect(result.warnings).toEqual([]);
+    // No step was clamped, so every call was free to use tools.
+    expect(planner.toolChoices).toEqual(["auto", "auto", "auto"]);
     // And the writer is not told to hedge a report that is not actually thin.
     expect(writer.prompts[0]).not.toContain("stopped early");
+  });
+
+  test("spends the last allowed step writing instead of on a doomed tool call", async () => {
+    const planner = healthyPlanner();
+    const writer = scriptedModel([says(JSON.stringify(REPORT))]);
+
+    const result = await runResearch({
+      question: "What is the rate limit?",
+      config: { ...testConfig(dbPath), maxSteps: 3 },
+      retrieval: fakeRetrieval(PAGES),
+      models: { planner, writer },
+    });
+
+    // Tools are switched off for the final step, so the model cannot spend it
+    // fetching something the loop will stop before it can read.
+    expect(planner.toolChoices).toEqual(["auto", "auto", "none"]);
+
+    // Reaching that step means it was still calling tools a step earlier, so
+    // the run was truncated however politely it ended.
+    expect(result.stoppedBy).toBe("max_steps");
+    expect(result.warnings.join(" ")).toContain("3-step limit");
+    expect(writer.prompts[0]).toContain("stopped early");
   });
 
   test("calls a run whose tools were turned away cut short, not complete", async () => {
@@ -370,12 +397,14 @@ describe("runResearch (offline)", () => {
       says("Concluding with what I have.", 0),
     ]);
     const retrieval = fakeRetrieval(PAGES);
+    const events: RunEvent[] = [];
 
     const result = await runResearch({
       question: "What is the rate limit?",
       config: { ...testConfig(dbPath), maxUsd: 0.01 },
       retrieval,
       models: { planner, writer },
+      onEvent: (e) => events.push(e),
     });
 
     // The search never happened, and no limit is technically over its line —
@@ -383,6 +412,18 @@ describe("runResearch (offline)", () => {
     expect(retrieval.searches).toEqual([]);
     expect(result.stoppedBy).toBe("max_usd");
     expect(writer.prompts[0]).toContain("stopped early");
+
+    // A refusal is a real event, not something to be inferred from the stop
+    // reason after the fact.
+    expect(result.warnings.join(" ")).toContain(
+      "retrieval was cut short by max_usd",
+    );
+    expect(events.filter((e) => e.type === "warning")).toHaveLength(1);
+
+    // And nothing opened a tool call it did not close.
+    expect(events.filter((e) => e.type === "tool_start")).toHaveLength(
+      events.filter((e) => e.type === "tool_end").length,
+    );
   });
 
   test("reconciles stoppedBy with the final snapshot when the writer overspends", async () => {
@@ -518,5 +559,39 @@ describe("runResearch (offline)", () => {
     expect(run["report_json"]).toContain("42 rps");
     expect(sources).toHaveLength(2);
     expect(sources.filter((s) => s["was_read"] === 1)).toHaveLength(1);
+  });
+});
+
+describe("writerModelSettings", () => {
+  test("caps the writer's reasoning and keeps usage accounting on", () => {
+    const settings = writerModelSettings({
+      ...testConfig("/tmp/unused.db"),
+      writerReasoningEffort: "low",
+    });
+
+    // Usage accounting is what makes the dollar budget real, so it stays.
+    expect(settings.usage).toEqual({ include: true });
+    expect(settings.reasoning).toEqual({ effort: "low" });
+  });
+
+  test('sends no reasoning field at all on "default"', () => {
+    const settings = writerModelSettings({
+      ...testConfig("/tmp/unused.db"),
+      writerReasoningEffort: "default",
+    });
+
+    // Absent, not `{ effort: "default" }` — "default" is our word, not the
+    // provider's, and sending it would be rejected.
+    expect("reasoning" in settings).toBe(false);
+    expect(settings.usage).toEqual({ include: true });
+  });
+
+  test("passes a retuned effort through unchanged", () => {
+    expect(
+      writerModelSettings({
+        ...testConfig("/tmp/unused.db"),
+        writerReasoningEffort: "xhigh",
+      }).reasoning,
+    ).toEqual({ effort: "xhigh" });
   });
 });
