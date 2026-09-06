@@ -262,7 +262,10 @@ export function testConfig(dbPath: string): Config {
     tavilyApiKey: "tvly-test",
     plannerModel: "mock/planner",
     writerModel: "mock/writer",
+    writeModel: "mock/writer",
+    writeModelFallsBack: false,
     writerReasoningEffort: "low",
+    writeReasoningEffort: "medium",
     // Offline runs never reach OpenRouter, so pinning routing here would only
     // be a fact the tests have to keep in sync with the real default.
     writerProviders: [],
@@ -287,13 +290,18 @@ export function testConfig(dbPath: string): Config {
  * shape OpenRouter uses for an upstream 429, which arrives as an `error` part
  * mid-stream rather than as a rejected request.
  */
-export function erroringStreamModel(message: string) {
+export function erroringStreamModel(message: string, text = "") {
   return new MockLanguageModelV4({
     modelId: "mock/writer",
     doStream: {
       stream: new ReadableStream({
         start(controller) {
           controller.enqueue({ type: "stream-start", warnings: [] });
+          if (text) {
+            controller.enqueue({ type: "text-start", id: "partial" });
+            controller.enqueue({ type: "text-delta", id: "partial", delta: text });
+            controller.enqueue({ type: "text-end", id: "partial" });
+          }
           controller.enqueue({ type: "error", error: { message } });
           controller.enqueue({
             type: "finish",

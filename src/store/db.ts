@@ -54,5 +54,15 @@ export function openDb(path: string): Db {
   mkdirSync(dirname(abs), { recursive: true });
   const db = new DatabaseSync(abs);
   db.exec(SCHEMA);
+  // CREATE TABLE IF NOT EXISTS leaves established installations untouched.
+  // Keep this explicit first migration so their research history remains usable.
+  const columns = db.prepare("PRAGMA table_info(runs)").all() as Array<{
+    name: string;
+  }>;
+  if (!columns.some((column) => column.name === "kind")) {
+    db.exec(
+      "ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'research'",
+    );
+  }
   return db;
 }

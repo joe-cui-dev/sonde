@@ -9,10 +9,31 @@ import type {
 export class RunStore {
   constructor(private readonly db: Db) {}
 
-  start(runId: string, question: string): void {
+  start(
+    runId: string,
+    question: string,
+    kind: "research" | "writing" = "research",
+  ): void {
     this.db
-      .prepare("INSERT INTO runs (id, question, started_at) VALUES (?, ?, ?)")
-      .run(runId, question, Date.now());
+      .prepare("INSERT INTO runs (id, question, started_at, kind) VALUES (?, ?, ?, ?)")
+      .run(runId, question, Date.now(), kind);
+  }
+
+  finishWrite(
+    runId: string,
+    stoppedBy: StopReason,
+    usage: BudgetSnapshot,
+    text: string | null,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE runs SET finished_at = ?, stopped_by = ?, usd = ?, total_tokens = ?,
+         search_credits = ?, report_json = ? WHERE id = ?`,
+      )
+      .run(
+        Date.now(), stoppedBy, usage.usd, usage.totalTokens,
+        usage.searchCredits, text, runId,
+      );
   }
 
   event(runId: string, type: string, payload: unknown): void {
@@ -71,7 +92,7 @@ export class RunStore {
   recent(limit = 20): Array<Record<string, unknown>> {
     return this.db
       .prepare(
-        `SELECT id, question, started_at, finished_at, stopped_by, usd, total_tokens, search_credits
+        `SELECT id, question, kind, started_at, finished_at, stopped_by, usd, total_tokens, search_credits
          FROM runs ORDER BY started_at DESC LIMIT ?`,
       )
       .all(limit) as Array<Record<string, unknown>>;

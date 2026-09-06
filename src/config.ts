@@ -61,6 +61,7 @@ const ConfigSchema = z.object({
 
   plannerModel: z.string().default("z-ai/glm-5.3-flash"),
   writerModel: z.string().default("z-ai/glm-5.3-flash"),
+  writeModel: z.string().default(""),
 
   /**
    * How hard the writer is allowed to think. "default" sends nothing and lets
@@ -70,6 +71,9 @@ const ConfigSchema = z.object({
   writerReasoningEffort: z
     .enum(["default", "none", "minimal", "low", "medium", "high", "xhigh"])
     .default("low"),
+  writeReasoningEffort: z
+    .enum(["default", "none", "minimal", "low", "medium", "high", "xhigh"])
+    .default("medium"),
 
   /**
    * Empty means "no restriction". A list is sent as an ordered preference with
@@ -115,7 +119,10 @@ const ConfigSchema = z.object({
   appTitle: z.string().default("Sonde"),
 });
 
-export type Config = z.infer<typeof ConfigSchema> & { logLevel: LogLevel };
+export type Config = z.infer<typeof ConfigSchema> & {
+  logLevel: LogLevel;
+  writeModelFallsBack: boolean;
+};
 
 const PLACEHOLDER = /REPLACE_ME/i;
 
@@ -133,7 +140,9 @@ export function loadConfig(
     tavilyApiKey: env.TAVILY_API_KEY,
     plannerModel: env.SONDE_PLANNER_MODEL,
     writerModel: env.SONDE_WRITER_MODEL,
+    writeModel: env.SONDE_WRITE_MODEL,
     writerReasoningEffort: env.SONDE_WRITER_REASONING_EFFORT,
+    writeReasoningEffort: env.SONDE_WRITE_REASONING_EFFORT,
     writerProviders: env.SONDE_WRITER_PROVIDERS,
     maxSteps: env.SONDE_MAX_STEPS,
     maxUsd: env.SONDE_MAX_USD,
@@ -160,6 +169,9 @@ export function loadConfig(
   }
 
   const config = parsed.data as Config;
+  const writeModelFallsBack = !config.writeModel;
+  if (writeModelFallsBack) config.writeModel = config.writerModel;
+  (config as Config).writeModelFallsBack = writeModelFallsBack;
 
   for (const [name, value] of [
     ["OPENROUTER_API_KEY", config.openrouterApiKey],

@@ -66,12 +66,19 @@ export async function preflight(
       "structured_outputs",
     ]),
   );
+  checks.push(checkWriteModel(config, models));
 
   checks.push(await checkWriterRouting(config, signal));
 
   checks.push(checkKeyShape("tavily key", config.tavilyApiKey, "tvly-"));
 
   return checks;
+}
+
+function checkWriteModel(config: Config, models: OpenRouterModel[] | null): Check {
+  const fallback = config.writeModelFallsBack;
+  const base = checkModel("write model", config.writeModel, models, []);
+  return { ...base, detail: `${base.detail} — needs neither tools nor structured_outputs${fallback ? "; falling back to writer model" : ""}` };
 }
 
 async function checkKey(config: Config, signal: AbortSignal): Promise<Check> {

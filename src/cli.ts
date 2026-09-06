@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { runResearch } from "./agent/research-agent.js";
 import { loadConfig } from "./config.js";
 import { openDb } from "./store/db.js";
@@ -8,12 +8,16 @@ import { RunStore } from "./store/runs.js";
 import { preflight } from "./preflight.js";
 import { createLogger, usd } from "./util/log.js";
 import { ReportPreviewRenderer } from "./cli-preview.js";
-import type { ResearchResult, RunEvent } from "./types.js";
+import { runWrite } from "./writing/write-agent.js";
+import { WRITE_STYLES } from "./writing/styles.js";
+import { WritingPreviewRenderer } from "./writing-preview.js";
+import type { ResearchResult, RunEvent, WriteMode, WriteResult } from "./types.js";
 
 const USAGE = `
 sonde — a web research agent
 
   sonde research "<question>" [options]
+  sonde write [brief] [--mode new|continue|expand] [--in draft.md]
   sonde runs [--limit N]
   sonde doctor
 
@@ -23,6 +27,11 @@ Options
       --max-steps <n>    override SONDE_MAX_STEPS
       --max-usd <n>      override SONDE_MAX_USD
       --quiet            suppress progress output
+      --mode <mode>      new (default), continue, or expand
+      --in <file>        read a draft (stdin is used when piped)
+      --style <style>    ${Object.keys(WRITE_STYLES).join(", ")}
+      --lang <language>  language for writing
+      --length <n>       words for new/continue; multiplier for expand
   -h, --help             show this
 `;
 
@@ -37,6 +46,11 @@ async function main(): Promise<number> {
       "max-usd": { type: "string" },
       limit: { type: "string" },
       quiet: { type: "boolean", default: false },
+      mode: { type: "string" },
+      in: { type: "string" },
+      style: { type: "string" },
+      lang: { type: "string" },
+      length: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -90,6 +104,8 @@ async function main(): Promise<number> {
     }
     return 0;
   }
+
+  if (command === "write") return writeCommand(values, positionals.slice(1));
 
   if (command !== "research") {
     process.stderr.write(`Unknown command: ${command}\n${USAGE}`);
@@ -170,6 +186,35 @@ async function main(): Promise<number> {
 
   return result.report ? 0 : 2;
 }
+
+async function writeCommand(
+  values: Record<string, string | boolean | undefined>,
+  args: string[],
+): Promise<number> {
+  const mode = (values.mode ?? "new") as WriteMode;
+  if (!(["new", "continue", "expand"] as string[]).includes(mode)) throw new Error("--mode must be new, continue, or expand.");
+  const style = (values.style ?? "plain") as keyof typeof WRITE_STYLES;
+  if (!(style in WRITE_STYLES)) throw new Error(`Unknown style: ${style}`);
+  const brief = args.join(" ").trim();
+  if (!brief) throw new Error("A brief is required.");
+  const hasDraft = typeof values.in === "string" || !process.stdin.isTTY;
+  const draft = typeof values.in === "string"
+    ? readFileSync(values.in, "utf8")
+    : !process.stdin.isTTY ? readFileSync(0, "utf8") : undefined;
+  if (mode === "new" && hasDraft) throw new Error("new mode does not accept a draft.");
+  if (mode !== "new" && !hasDraft) throw new Error(`${mode} mode requires a draft via --in or stdin.`);
+  const config = loadConfig(); if (values.quiet) config.logLevel = "silent";
+  const controller = new AbortController(); process.once("SIGINT", () => controller.abort());
+  const preview = new WritingPreviewRenderer(process.stderr);
+  const result = await runWrite({ brief, draft, mode, style, language: typeof values.lang === "string" ? values.lang : undefined, length: typeof values.length === "string" ? Number(values.length) : undefined, config, signal: controller.signal, onEvent: (event) => { if (!values.quiet && event.type === "text_delta") preview.update(event.delta); } });
+  const output = values.json ? JSON.stringify(result, null, 2) + "\n" : writeText(result);
+  if (typeof values.out === "string") writeFileSync(values.out, output, "utf8"); else await writeStdout(output);
+  if (result.complete) preview.complete(); else preview.fail(lastWriteWarning(result));
+  return result.complete ? 0 : 2;
+}
+
+function writeText(result: WriteResult): string { return `${result.text ?? ""}${result.complete ? "" : "\n\n[INCOMPLETE — " + lastWriteWarning(result) + "]"}\n`; }
+function lastWriteWarning(result: WriteResult): string { return result.warnings.at(-1) ?? "writing did not complete"; }
 
 function renderEvent(
   event: RunEvent,

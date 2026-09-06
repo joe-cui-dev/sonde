@@ -123,3 +123,24 @@ export type RunEvent =
   | { type: "run_end"; result: ResearchResult };
 
 export type EventSink = (event: RunEvent) => void;
+
+export type WriteMode = "new" | "continue" | "expand";
+export type WriteStyleId =
+  | "plain" | "literary" | "reportage" | "commentary" | "explainer" | "business";
+export interface WriteResult {
+  runId: string;
+  mode: WriteMode;
+  brief: string;
+  text: string | null;
+  complete: boolean;
+  style: WriteStyleId;
+  usage: BudgetSnapshot;
+  stoppedBy: StopReason;
+  warnings: string[];
+}
+export type WriteEvent =
+  | { type: "write_start"; runId: string; brief: string; mode: WriteMode }
+  | { type: "text_delta"; delta: string }
+  | { type: "warning"; message: string }
+  | { type: "write_end"; result: WriteResult };
+export type WriteEventSink = (event: WriteEvent) => void;

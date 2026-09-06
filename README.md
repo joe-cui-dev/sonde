@@ -1,6 +1,6 @@
 # Sonde
 
-A web research agent in TypeScript.
+A model-backed research and writing tool in TypeScript.
 
 - **Orchestration** — Vercel AI SDK v7 (`ToolLoopAgent`)
 - **Reasoning** — OpenRouter, via `@openrouter/ai-sdk-provider`
@@ -21,6 +21,7 @@ Other commands:
 ```bash
 npm run research "…" -- --out report.md   # write markdown to a file
 npm run research "…" -- --json            # full result as JSON
+npm run dev -- write "Announce the launch" # write a new piece
 npm run dev -- runs                       # list past runs with what each cost
 npm run dev -- doctor                     # preflight: keys, model slugs, credit left
 npm run build && npm start research "…"   # compiled
@@ -51,6 +52,37 @@ question
 Two calls, not one, on purpose: the writer cannot cite a page the loop never
 fetched, because it is never shown one. `validateCitations` enforces that
 mechanically and records a warning for every citation it drops.
+
+## Writing
+
+`sonde write` is a separate one-turn workflow: it does no retrieval and emits
+no citations. See [the decision record](docs/adr/0001-writing-runs-carry-no-citations.md)
+for why that boundary is deliberate.
+
+```bash
+sonde write "A welcome email for new members" --style business --length 350
+sonde write "Finish this article" --mode continue --in draft.md
+cat draft.md | sonde write "Make this fuller" --mode expand --length 2
+```
+
+`new` (the default) refuses a draft. `continue` and `expand` require one; all
+three return a complete piece, never merely an increment. Under `expand`,
+`--length` is a relative multiplier; under `new` it is an approximate word
+count. Styles are registers, not author imitations:
+
+| Style | Use |
+| --- | --- |
+| `plain` | direct, clear prose |
+| `literary` | controlled imagery and rhythm |
+| `reportage` | scene-led journalistic prose |
+| `commentary` | a considered argument |
+| `explainer` | progressive explanation |
+| `business` | concise, decision-oriented writing |
+
+If a provider error, timeout, or interrupt occurs after prose has begun,
+Sonde delivers that partial prose with an incomplete marker and exits with code
+2. A partial draft can still be useful; unlike a partial research report, it
+does not imply unvalidated evidence is safe to rely on.
 
 ## Layout
 
