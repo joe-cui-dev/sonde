@@ -225,6 +225,10 @@ on Tavily.
 Every model call, step and tool execution is written to `run_events` in SQLite,
 tagged by run and phase. `sonde runs` lists what each run cost.
 
+Writing text deltas are delivered to the live terminal preview without being
+stored in `run_events`. The accumulated prose (including partial output on
+failure) is saved once in `runs.report_json` when the writing run finishes.
+
 The trace comes from AI SDK v7's native telemetry integration interface
 (`src/telemetry/index.ts`), passed per call rather than registered globally. To
 add Langfuse or Braintrust, put their integration alongside this one in the

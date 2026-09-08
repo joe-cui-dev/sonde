@@ -54,7 +54,10 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   const store = new RunStore(db);
   store.start(runId, brief, "writing");
   const emit = (event: WriteEvent) => {
-    if (event.type !== "write_end") store.event(runId, event.type, event);
+    // Deltas are live output; finishWrite persists the accumulated prose once.
+    if (event.type !== "write_end" && event.type !== "text_delta") {
+      store.event(runId, event.type, event);
+    }
     options.onEvent?.(event);
   };
   const warnings: string[] = [];

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
 import { openDb } from "../src/store/db.js";
 import { RunStore } from "../src/store/runs.js";
+import type { WriteEvent } from "../src/types.js";
 import { runWrite } from "../src/writing/write-agent.js";
 import { writePrompt } from "../src/writing/prompts.js";
 import { countWords } from "../src/writing/length.js";
@@ -47,18 +48,51 @@ describe("writing workflow seams", () => {
   });
 
   test("writes a complete whole piece and records it as writing", async () => {
-    const dbPath = databasePath(); const model = scriptedModel([says("Finished prose.")]);
-    const result = await runWrite({ brief: "Write a note", config: testConfig(dbPath), model });
+    const dbPath = databasePath();
+    const model = scriptedModel([{
+      ...says(""),
+      content: [
+        { type: "text", text: "Finished " },
+        { type: "text", text: "prose." },
+      ],
+    }]);
+    const events: WriteEvent[] = [];
+    const result = await runWrite({ brief: "Write a note", config: testConfig(dbPath), model, onEvent: (event) => { events.push(event); } });
     expect(result).toMatchObject({ text: "Finished prose.", complete: true, stoppedBy: "complete", mode: "new" });
     expect(model.prompts[0]).toContain("complete, finished piece");
+    expect(events.map((event) => event.type)).toEqual(["write_start", "text_delta", "text_delta", "write_end"]);
+    expect(events.filter((event) => event.type === "text_delta")).toEqual([
+      { type: "text_delta", delta: "Finished " },
+      { type: "text_delta", delta: "prose." },
+    ]);
     const db = openDb(dbPath);
-    expect(new RunStore(db).recent()[0]).toMatchObject({ kind: "writing", question: "Write a note" }); db.close();
+    try {
+      expect(new RunStore(db).recent()[0]).toMatchObject({ kind: "writing", question: "Write a note" });
+      expect(db.prepare("SELECT report_json FROM runs WHERE id = ?").get(result.runId))
+        .toMatchObject({ report_json: "Finished prose." });
+      expect(db.prepare("SELECT type FROM run_events WHERE run_id = ? ORDER BY id").all(result.runId))
+        .toEqual([{ type: "write_start" }]);
+    } finally {
+      db.close();
+    }
   });
 
   test("delivers streamed partial prose after an in-stream provider error", async () => {
-    const result = await runWrite({ brief: "Write", config: testConfig(databasePath()), model: erroringStreamModel("upstream stopped", "Useful beginning.") });
+    const dbPath = databasePath();
+    const events: WriteEvent[] = [];
+    const result = await runWrite({ brief: "Write", config: testConfig(dbPath), model: erroringStreamModel("upstream stopped", "Useful beginning."), onEvent: (event) => { events.push(event); } });
     expect(result).toMatchObject({ text: "Useful beginning.", complete: false, stoppedBy: "error" });
     expect(result.warnings.join(" ")).toContain("upstream stopped");
+    expect(events).toContainEqual({ type: "text_delta", delta: "Useful beginning." });
+    const db = openDb(dbPath);
+    try {
+      expect(db.prepare("SELECT report_json FROM runs WHERE id = ?").get(result.runId))
+        .toMatchObject({ report_json: "Useful beginning." });
+      expect(db.prepare("SELECT type FROM run_events WHERE run_id = ? ORDER BY id").all(result.runId))
+        .toEqual([{ type: "write_start" }, { type: "warning" }]);
+    } finally {
+      db.close();
+    }
   });
 
   test("names a saved piece by local time, mode, and run id", () => {
