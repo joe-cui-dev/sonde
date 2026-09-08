@@ -125,7 +125,8 @@ export type RunEvent =
 export type EventSink = (event: RunEvent) => void;
 
 export type WriteMode = "new" | "continue" | "expand";
-export type WriteStyleId =
+/** The styles Sonde ships with, and the only ones it knows at compile time. */
+export type BuiltInStyleId =
   | "match"
   | "plain"
   | "literary"
@@ -133,6 +134,12 @@ export type WriteStyleId =
   | "commentary"
   | "explainer"
   | "business";
+/**
+ * A style is named by whoever wrote it, and a styles file may name one
+ * anything, so an id is a string. Whether a given one exists is a question for
+ * the style catalogue at run time, not for the compiler.
+ */
+export type WriteStyleId = string;
 export interface WriteResult {
   runId: string;
   mode: WriteMode;

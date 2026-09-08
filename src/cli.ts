@@ -11,8 +11,9 @@ import { ReportPreviewRenderer } from "./cli-preview.js";
 import { runWrite } from "./writing/write-agent.js";
 import { archivePath, saveProse } from "./writing/archive.js";
 import { WRITE_STYLES } from "./writing/styles.js";
+import { loadStyles, requireStyle } from "./writing/style-file.js";
 import { WritingPreviewRenderer } from "./writing-preview.js";
-import type { ResearchResult, RunEvent, WriteMode, WriteResult, WriteStyleId } from "./types.js";
+import type { ResearchResult, RunEvent, WriteMode, WriteResult } from "./types.js";
 
 const USAGE = `
 sonde — a web research agent
@@ -32,6 +33,7 @@ Options
       --in <file>        read a draft (stdin is used when piped)
       --style <style>    ${Object.keys(WRITE_STYLES).join(", ")}
                          (default: match under continue and expand, plain under new)
+                         plus any style in SONDE_STYLES_FILE
       --lang <language>  language for writing
       --length <n>       words to write; under expand, the length of the
                          passage it returns
@@ -40,6 +42,9 @@ Options
 Every write run also saves its prose under SONDE_WRITING_DIR (.sonde/writing,
 which is gitignored) and prints the path — pass it back with --in to continue
 or expand the piece.
+
+Styles of your own go in SONDE_STYLES_FILE (.sonde/styles.json, also
+gitignored). One named for a built-in style replaces it. See styles.example.json.
 `;
 
 async function main(): Promise<number> {
@@ -203,8 +208,7 @@ async function writeCommand(
   // Left undefined when the flag is absent, so the workflow can pick the default
   // that suits the mode: a continue or expand run takes its register from the
   // draft, and pinning "plain" here would have overridden that before it ran.
-  const style = typeof values.style === "string" ? (values.style as WriteStyleId) : undefined;
-  if (style !== undefined && !(style in WRITE_STYLES)) throw new Error(`Unknown style: ${style}`);
+  const style = typeof values.style === "string" ? values.style : undefined;
   const brief = args.join(" ").trim();
   if (!brief) throw new Error("A brief is required.");
   const hasDraft = typeof values.in === "string" || !process.stdin.isTTY;
@@ -216,6 +220,9 @@ async function writeCommand(
   if (mode !== "new" && !hasDraft) throw new Error(`${mode} mode requires a draft via --in or stdin.`);
   const length = parseLength(values.length);
   const config = loadConfig(); if (values.quiet) config.logLevel = "silent";
+  // Checked here rather than against the built-in list, so that a typo is
+  // answered with the styles this machine actually has, custom ones included.
+  if (style !== undefined) requireStyle(loadStyles(config.stylesPath), style);
   const log = createLogger(config.logLevel);
   const controller = new AbortController(); process.once("SIGINT", () => controller.abort());
   const preview = new WritingPreviewRenderer(process.stderr);

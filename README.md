@@ -121,6 +121,28 @@ of the draft, and any other choice would show at the seam. Every style also
 carries a shared set of house rules against the habits that make prose read as
 machine-made, in whatever language it is written.
 
+Styles of your own go in `SONDE_STYLES_FILE` (`.sonde/styles.json`, gitignored
+along with the rest of `.sonde/`) — a register is personal, and it has no
+business in anyone else's history. Copy `styles.example.json` to start:
+
+```json
+{
+  "noir": {
+    "name": "Noir",
+    "summary": "First person, past tense, a narrator who notices what he would rather not.",
+    "moves": ["Keep the sentences short and the paragraphs shorter."],
+    "avoid": ["Period pastiche in place of an observed detail."]
+  }
+}
+```
+
+The key is what `--style` takes. `summary` and at least one move are required;
+`name` defaults to the key and `avoid` may be omitted. An entry named for a
+built-in style replaces it outright rather than merging into it, so what reaches
+the writer is always exactly one spec. A styles file that exists and is
+malformed stops the run and names the field — falling back to a built-in would
+write the piece in a register nobody chose.
+
 Every run saves its prose to a timestamped markdown file under
 `SONDE_WRITING_DIR` (`.sonde/writing`, gitignored) and prints the path last, so
 the next round is a copy and a paste:

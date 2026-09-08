@@ -1,0 +1,26 @@
+{
+  "noir": {
+    "name": "Noir",
+    "summary": "First person, past tense, a narrator who notices what he would rather not.",
+    "moves": [
+      "Keep the sentences short and the paragraphs shorter; let a long one land only when it is doing work.",
+      "Report the room before the feeling — what is on the table, what the light is doing, who has not moved.",
+      "Let the narrator be wrong about himself and right about everyone else.",
+      "End a scene one beat before the reader is ready."
+    ],
+    "avoid": [
+      "Period pastiche — fedoras, dames, gats — in place of an observed detail.",
+      "Explaining the narrator's mood in the narrator's voice.",
+      "A wisecrack where a silence would do more."
+    ]
+  },
+  "plain": {
+    "name": "Plain",
+    "summary": "An override: this entry replaces the built-in plain style outright.",
+    "moves": [
+      "Put the actor before the action.",
+      "Say the number rather than the adjective: \"eleven minutes\", not \"a long wait\"."
+    ],
+    "avoid": ["Any sentence that needs a second reading."]
+  }
+}

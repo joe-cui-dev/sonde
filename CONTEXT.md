@@ -94,6 +94,16 @@ the draft's, which is why it is the default under continue and expand, where a
 register chosen for the run would show at the seam it exists to hide.
 _Avoid_: Voice, tone, persona
 
+**Styles file**:
+Styles of the writer's own, as JSON at `SONDE_STYLES_FILE` (`.sonde/styles.json`,
+gitignored). Its entries join the built-in styles, and one named for a built-in
+replaces that style outright rather than merging into it — the writer receives
+exactly one spec, and the file is the whole of it. Absent is the ordinary case
+and means the built-ins alone; present and malformed is an error, because a run
+that fell back quietly would write the piece in a register nobody chose and the
+prose is paid for by then.
+_Avoid_: Style config, custom prompt
+
 **House rules**:
 The habits that make prose read as machine-made — antithesis-and-uplift, the
 three-part list as a default rhythm, meta-commentary, surviving adverbs. They

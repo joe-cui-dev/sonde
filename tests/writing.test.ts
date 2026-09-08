@@ -1,6 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,10 +11,27 @@ import { runWrite } from "../src/writing/write-agent.js";
 import { writePrompt } from "../src/writing/prompts.js";
 import { countWords } from "../src/writing/length.js";
 import { WRITE_STYLES } from "../src/writing/styles.js";
+import { loadStyles, requireStyle } from "../src/writing/style-file.js";
 import { archivePath, saveProse } from "../src/writing/archive.js";
 import { erroringStreamModel, says, scriptedModel, testConfig } from "./helpers/mock.js";
 
 function databasePath() { return join(mkdtempSync(join(tmpdir(), "sonde-write-")), "sonde.db"); }
+
+/** A config whose styles file exists and holds `content`. */
+function configWithStyles(content: unknown) {
+  const config = testConfig(databasePath());
+  writeFileSync(config.stylesPath, typeof content === "string" ? content : JSON.stringify(content));
+  return config;
+}
+
+const NOIR = {
+  noir: {
+    name: "Noir",
+    summary: "First person, past tense, a narrator who notices what he would rather not.",
+    moves: ["Keep the sentences short and the paragraphs shorter."],
+    avoid: ["Period pastiche in place of an observed detail."],
+  },
+};
 
 describe("writing workflow seams", () => {
   test("upgrades a legacy run database once and labels historical rows research", () => {
@@ -158,6 +175,67 @@ describe("writing workflow seams", () => {
     const reminder = "Hold the style described above — Literary — from the first sentence to the last.";
     expect(prompt.trimEnd().endsWith(reminder)).toBe(true);
     expect(prompt.indexOf(reminder)).toBeGreaterThan(prompt.indexOf("A storm came."));
+  });
+
+  test("adds a style from the styles file and hands its spec to the writer", async () => {
+    const model = scriptedModel([says("The rain had opinions.")]);
+    const result = await runWrite({
+      brief: "Write a scene", style: "noir", config: configWithStyles(NOIR), model,
+    });
+    expect(result.style).toBe("noir");
+    expect(model.prompts[0]).toContain("Style — Noir");
+    expect(model.prompts[0]).toContain("Keep the sentences short");
+    expect(model.prompts[0]).toContain("Period pastiche");
+  });
+
+  test("lets a styles file entry replace the built-in style it is named for", async () => {
+    const model = scriptedModel([says("Eleven minutes.")]);
+    await runWrite({
+      brief: "Write a note", style: "plain", model,
+      config: configWithStyles({
+        plain: { summary: "Numbers, not adjectives.", moves: ["Say the number."] },
+      }),
+    });
+    const prompt = model.prompts[0]!;
+    expect(prompt).toContain("Numbers, not adjectives.");
+    // Replaced outright, not merged: what the writer gets is one whole spec.
+    expect(prompt).not.toContain("Put the actor before the action");
+    // A style may name no failures, and a bare "Avoid:" would read as a lost instruction.
+    expect(prompt).not.toContain("Avoid:");
+  });
+
+  test("takes the id as the name when the styles file gives none", () => {
+    const config = configWithStyles({ terse: { summary: "Short.", moves: ["Stop early."] } });
+    expect(loadStyles(config.stylesPath).terse).toMatchObject({ id: "terse", name: "terse", avoid: [] });
+  });
+
+  test("leaves the built-in styles alone when there is no styles file", () => {
+    expect(Object.keys(loadStyles(testConfig(databasePath()).stylesPath)).sort())
+      .toEqual(Object.keys(WRITE_STYLES).sort());
+  });
+
+  test("names the file and the field when a styles file is wrong", () => {
+    // A styles file that exists and is broken is an error, never a quiet
+    // fallback: prose written in a register nobody chose is already paid for.
+    const badJson = configWithStyles("{ nope");
+    expect(() => loadStyles(badJson.stylesPath)).toThrow(badJson.stylesPath);
+    const noMoves = configWithStyles({ noir: { summary: "Dark.", moves: [] } });
+    expect(() => loadStyles(noMoves.stylesPath)).toThrow(/noir\.moves/u);
+    const stray = configWithStyles({ noir: { summary: "Dark.", moves: ["Stop."], tone: "grim" } });
+    expect(() => loadStyles(stray.stylesPath)).toThrow(/tone/u);
+  });
+
+  test("answers an unknown style with the styles this machine actually has", () => {
+    const catalogue = loadStyles(configWithStyles(NOIR).stylesPath);
+    expect(() => requireStyle(catalogue, "nior")).toThrow(/Unknown style: nior/u);
+    expect(() => requireStyle(catalogue, "nior")).toThrow(/noir/u);
+  });
+
+  test("refuses a style that does not exist before spending anything on the run", async () => {
+    const model = scriptedModel([says("never reached")]);
+    await expect(runWrite({ brief: "Write", style: "gothic", config: testConfig(databasePath()), model }))
+      .rejects.toThrow(/Unknown style: gothic/u);
+    expect(model.callCount).toBe(0);
   });
 
   test("says nothing about length when neither brief nor flag asks for one", () => {

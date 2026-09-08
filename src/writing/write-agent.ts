@@ -16,7 +16,8 @@ import type {
 } from "../types.js";
 import { countWords } from "./length.js";
 import { writePrompt } from "./prompts.js";
-import { defaultStyle, WRITE_STYLES } from "./styles.js";
+import { loadStyles, requireStyle } from "./style-file.js";
+import { defaultStyle } from "./styles.js";
 
 export interface RunWriteOptions {
   brief: string;
@@ -38,6 +39,10 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   const brief = options.brief.trim();
   const mode = options.mode ?? "new";
   const style = options.style ?? defaultStyle(mode);
+  // Resolved before anything is opened, spent, or recorded: a style that does
+  // not exist is a typo in the command, and the run should die on it rather
+  // than on the far side of a paid model call.
+  const spec = requireStyle(loadStyles(config.stylesPath), style);
   const limits: BudgetLimits = {
     maxSteps: config.maxSteps, maxUsd: config.maxUsd,
     maxTokens: config.maxTokens, maxSearchCredits: config.maxSearchCredits,
@@ -76,7 +81,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     const result = streamText({
       model,
       prompt: writePrompt({
-        brief, draft: options.draft, mode, style: WRITE_STYLES[style],
+        brief, draft: options.draft, mode, style: spec,
         language: options.language, length: options.length,
       }),
       maxOutputTokens: outputTokenLimit(options.length, mode, options.draft),

@@ -114,6 +114,12 @@ const ConfigSchema = z.object({
   dbPath: z.string().default(".sonde/sonde.db"),
   /** Where writing runs keep their prose. Under .sonde/, which is gitignored. */
   writingDir: z.string().default(".sonde/writing"),
+  /**
+   * Styles of the writer's own, added to the built-in ones. Under .sonde/ for
+   * the same reason the prose is: a register is personal, and this keeps it out
+   * of the repository by default. Absent is the ordinary case.
+   */
+  stylesPath: z.string().default(".sonde/styles.json"),
   cacheTtlHours: num(168),
 
   logLevel: z.enum(["silent", "info", "debug"]).default("info"),
@@ -156,6 +162,7 @@ export function loadConfig(
     extractDepth: env.SONDE_EXTRACT_DEPTH,
     dbPath: env.SONDE_DB_PATH,
     writingDir: env.SONDE_WRITING_DIR,
+    stylesPath: env.SONDE_STYLES_FILE,
     cacheTtlHours: env.SONDE_CACHE_TTL_HOURS,
     logLevel: env.SONDE_LOG_LEVEL,
     appUrl: env.SONDE_APP_URL,

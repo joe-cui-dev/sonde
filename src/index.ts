@@ -22,6 +22,16 @@ export { PageCache } from "./store/cache.js";
 export { RunStore } from "./store/runs.js";
 export { openDb } from "./store/db.js";
 export { runWrite, type RunWriteOptions } from "./writing/write-agent.js";
-export { WRITE_STYLES, type WriteStyle } from "./writing/styles.js";
+export {
+  WRITE_STYLES,
+  renderStyle,
+  defaultStyle,
+  type WriteStyle,
+} from "./writing/styles.js";
+export {
+  loadStyles,
+  requireStyle,
+  type StyleCatalogue,
+} from "./writing/style-file.js";
 export { canonicalizeUrl, dedupeByUrl, hostOf } from "./util/url.js";
 export type * from "./types.js";

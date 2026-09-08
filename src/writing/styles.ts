@@ -1,4 +1,4 @@
-import type { WriteMode, WriteStyleId } from "../types.js";
+import type { BuiltInStyleId, WriteMode, WriteStyleId } from "../types.js";
 
 /**
  * A style is a specification, not an adjective. "Vivid" and "concise" reach the
@@ -19,7 +19,7 @@ export interface WriteStyle {
   avoid: string[];
 }
 
-export const WRITE_STYLES: Record<WriteStyleId, WriteStyle> = {
+export const WRITE_STYLES: Record<BuiltInStyleId, WriteStyle> = {
   // The one style with no register of its own. It is the right default for a
   // run that writes into prose someone else already wrote.
   match: {
@@ -148,13 +148,19 @@ export const WRITE_STYLES: Record<WriteStyleId, WriteStyle> = {
   },
 };
 
-/** The style as it reaches the writer: a heading, the moves, the failures. */
+/**
+ * The style as it reaches the writer: a heading, the moves, the failures. A
+ * style from a styles file may name no failures at all, and a bare "Avoid:"
+ * with nothing under it would read as an instruction that got lost.
+ */
 export function renderStyle(style: WriteStyle): string {
   return [
     `Style — ${style.name}: ${style.summary}`,
     ["Do this:", ...style.moves.map((move) => `- ${move}`)].join("\n"),
-    ["Avoid:", ...style.avoid.map((failure) => `- ${failure}`)].join("\n"),
-  ].join("\n\n");
+    style.avoid.length
+      ? ["Avoid:", ...style.avoid.map((failure) => `- ${failure}`)].join("\n")
+      : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -162,6 +168,6 @@ export function renderStyle(style: WriteStyle): string {
  * one chosen for it would show at exactly the seam it is meant to hide. New
  * writing has no draft to take a register from, so it gets the plainest default.
  */
-export function defaultStyle(mode: WriteMode): WriteStyleId {
+export function defaultStyle(mode: WriteMode): BuiltInStyleId {
   return mode === "new" ? "plain" : "match";
 }

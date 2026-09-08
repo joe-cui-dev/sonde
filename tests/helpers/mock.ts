@@ -279,6 +279,8 @@ export function testConfig(dbPath: string): Config {
     extractDepth: "basic",
     dbPath,
     writingDir: `${dbPath}-writing`,
+    // Absent unless a test writes one, which is the ordinary case.
+    stylesPath: `${dbPath}-styles.json`,
     cacheTtlHours: 168,
     logLevel: "silent",
     appUrl: "https://example.test",
