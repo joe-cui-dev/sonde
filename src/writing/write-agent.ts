@@ -14,6 +14,7 @@ import type {
   WriteResult,
   WriteStyleId,
 } from "../types.js";
+import { assertFieldLimit, hashCharactersFile, loadCharacters, requireCharacter } from "./character-file.js";
 import { countWords } from "./length.js";
 import { writePrompt } from "./prompts.js";
 import { loadStyles, requireStyle } from "./style-file.js";
@@ -24,6 +25,8 @@ export interface RunWriteOptions {
   draft?: string;
   mode?: WriteMode;
   style?: WriteStyleId;
+  /** Ids from the project's characters file (SONDE_CHARACTERS_FILE), each one a `--character`. */
+  characters?: string[];
   language?: string;
   length?: number;
   config?: Config;
@@ -43,6 +46,20 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   // not exist is a typo in the command, and the run should die on it rather
   // than on the far side of a paid model call.
   const spec = requireStyle(loadStyles(config.stylesPath), style);
+  // Characters are resolved at the same point and for the same reason: an
+  // unknown id, or a run that asks for more people or bigger fields than the
+  // hard limits allow, is a mistake in the command that should fail here,
+  // not after the model has already been paid for a prompt built around it.
+  const characterIds = options.characters ?? [];
+  if (characterIds.length > config.maxCharacterCards) {
+    throw new Error(
+      `--character was given ${characterIds.length} names; at most ${config.maxCharacterCards} ` +
+        "may be injected into one run (SONDE_MAX_CHARACTER_CARDS).",
+    );
+  }
+  const catalogue = loadCharacters(config.charactersPath, config.maxCharactersFileBytes);
+  const characters = characterIds.map((id) => requireCharacter(catalogue, id));
+  for (const card of characters) assertFieldLimit(card, config.maxCharacterFieldChars);
   const limits: BudgetLimits = {
     maxSteps: config.maxSteps, maxUsd: config.maxUsd,
     maxTokens: config.maxTokens, maxSearchCredits: config.maxSearchCredits,
@@ -65,7 +82,18 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     warnings.push(message);
     emit({ type: "warning", message });
   };
-  emit({ type: "write_start", runId, brief, mode });
+  emit({
+    type: "write_start",
+    runId,
+    brief,
+    mode,
+    // Only present when characters were actually injected, so the ordinary
+    // run — no characters file, or none named — leaves no trace of a feature
+    // it never touched.
+    ...(characters.length
+      ? { characters: characters.map((card) => card.name), charactersHash: hashCharactersFile(config.charactersPath) }
+      : {}),
+  });
   const openrouter = options.model ? null : createOpenRouter({
     apiKey: config.openrouterApiKey,
     headers: { "HTTP-Referer": config.appUrl, "X-Title": config.appTitle },
@@ -84,7 +112,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     const result = streamText({
       model,
       prompt: writePrompt({
-        brief, draft: options.draft, mode, style: spec,
+        brief, draft: options.draft, mode, style: spec, characters,
         language: options.language, length: options.length,
       }),
       maxOutputTokens: outputTokenLimit(options.length, mode, options.draft),

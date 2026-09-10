@@ -152,7 +152,16 @@ export interface WriteResult {
   warnings: string[];
 }
 export type WriteEvent =
-  | { type: "write_start"; runId: string; brief: string; mode: WriteMode }
+  | {
+      type: "write_start";
+      runId: string;
+      brief: string;
+      mode: WriteMode;
+      /** Names of the characters injected into this run, if any. */
+      characters?: string[];
+      /** Fingerprint of the characters file they came from — see hashCharactersFile. */
+      charactersHash?: string;
+    }
   | { type: "text_delta"; delta: string }
   | { type: "warning"; message: string }
   | { type: "write_end"; result: WriteResult };

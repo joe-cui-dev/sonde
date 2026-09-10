@@ -12,6 +12,7 @@ import { runWrite } from "./writing/write-agent.js";
 import { archivePath, saveProse } from "./writing/archive.js";
 import { WRITE_STYLES } from "./writing/styles.js";
 import { loadStyles, requireStyle } from "./writing/style-file.js";
+import { loadCharacters, requireCharacter } from "./writing/character-file.js";
 import { WritingPreviewRenderer } from "./writing-preview.js";
 import type { ResearchResult, RunEvent, WriteMode, WriteResult } from "./types.js";
 
@@ -34,6 +35,8 @@ Options
       --style <style>    ${Object.keys(WRITE_STYLES).join(", ")}
                          (default: match under continue and expand, plain under new)
                          plus any style in SONDE_STYLES_FILE
+      --character <id>   inject a character reference by id (repeatable);
+                         ids come from SONDE_CHARACTERS_FILE
       --lang <language>  language for writing
       --length <n>       words to write; under expand, the length of the
                          passage it returns
@@ -45,6 +48,10 @@ or expand the piece.
 
 Styles of your own go in SONDE_STYLES_FILE (.sonde/styles.json, also
 gitignored). One named for a built-in style replaces it. See styles.example.json.
+
+A project's cast goes in SONDE_CHARACTERS_FILE (.sonde/characters.json, also
+gitignored) — a record of ids to character cards, injected with --character
+<id> (repeatable). See characters.example.json.
 `;
 
 async function main(): Promise<number> {
@@ -61,6 +68,7 @@ async function main(): Promise<number> {
       mode: { type: "string" },
       in: { type: "string" },
       style: { type: "string" },
+      character: { type: "string", multiple: true },
       lang: { type: "string" },
       length: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
@@ -200,7 +208,7 @@ async function main(): Promise<number> {
 }
 
 async function writeCommand(
-  values: Record<string, string | boolean | undefined>,
+  values: Record<string, string | string[] | boolean | undefined>,
   args: string[],
 ): Promise<number> {
   const mode = (values.mode ?? "new") as WriteMode;
@@ -209,6 +217,7 @@ async function writeCommand(
   // that suits the mode: a continue or expand run takes its register from the
   // draft, and pinning "plain" here would have overridden that before it ran.
   const style = typeof values.style === "string" ? values.style : undefined;
+  const characters = Array.isArray(values.character) ? values.character : [];
   const brief = args.join(" ").trim();
   if (!brief) throw new Error("A brief is required.");
   const hasDraft = typeof values.in === "string" || !process.stdin.isTTY;
@@ -223,10 +232,17 @@ async function writeCommand(
   // Checked here rather than against the built-in list, so that a typo is
   // answered with the styles this machine actually has, custom ones included.
   if (style !== undefined) requireStyle(loadStyles(config.stylesPath), style);
+  // Same reasoning as the style check above: an unknown --character is a typo
+  // in the command, and should fail before the draft is read further or
+  // anything is spent, with the cast this machine's characters file actually has.
+  if (characters.length) {
+    const catalogue = loadCharacters(config.charactersPath, config.maxCharactersFileBytes);
+    for (const id of characters) requireCharacter(catalogue, id);
+  }
   const log = createLogger(config.logLevel);
   const controller = new AbortController(); process.once("SIGINT", () => controller.abort());
   const preview = new WritingPreviewRenderer(process.stderr);
-  const result = await runWrite({ brief, draft, mode, style, language: typeof values.lang === "string" ? values.lang : undefined, length, config, signal: controller.signal, onEvent: (event) => { if (!values.quiet && event.type === "text_delta") preview.update(event.delta); } });
+  const result = await runWrite({ brief, draft, mode, style, characters, language: typeof values.lang === "string" ? values.lang : undefined, length, config, signal: controller.signal, onEvent: (event) => { if (!values.quiet && event.type === "text_delta") preview.update(event.delta); } });
   const savedTo = archiveProse(result, config, log);
   const output = values.json ? JSON.stringify({ ...result, savedTo }, null, 2) + "\n" : writeText(result);
 
@@ -245,7 +261,7 @@ async function writeCommand(
 }
 
 /** A word count is a count: a bad one would reach the model as "roughly NaN". */
-function parseLength(value: string | boolean | undefined): number | undefined {
+function parseLength(value: string | string[] | boolean | undefined): number | undefined {
   if (typeof value !== "string") return undefined;
   const length = Number(value);
   if (!Number.isFinite(length) || length <= 0)

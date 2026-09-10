@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { WriteStyleId } from "../types.js";
+import { parseConfigJson, readConfigFile, renderZodIssues } from "./config-file.js";
 import { WRITE_STYLES, type WriteStyle } from "./styles.js";
 
 /**
@@ -44,38 +44,17 @@ export type StyleCatalogue = Record<WriteStyleId, WriteStyle>;
  * paid for by then.
  */
 export function loadStyles(path: string): StyleCatalogue {
-  const raw = read(path);
+  const raw = readConfigFile(path, "styles");
   if (raw === null) return { ...WRITE_STYLES };
-  const parsed = StyleFile.safeParse(json(raw, path));
+  const parsed = StyleFile.safeParse(parseConfigJson(raw, path, "styles"));
   if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((issue) => `  • ${issue.path.join(".") || "(root)"}: ${issue.message}`)
-      .join("\n");
-    throw new Error(`Invalid styles file ${path}:\n${issues}`);
+    throw new Error(`Invalid styles file ${path}:\n${renderZodIssues(parsed.error.issues)}`);
   }
   const catalogue: StyleCatalogue = { ...WRITE_STYLES };
   for (const [id, style] of Object.entries(parsed.data)) {
     catalogue[id] = { id, name: style.name ?? id, summary: style.summary, moves: style.moves, avoid: style.avoid };
   }
   return catalogue;
-}
-
-/** Null for "no styles file", which is not a problem. Anything else is. */
-function read(path: string): string | null {
-  try {
-    return readFileSync(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw new Error(`Could not read styles file ${path}: ${(error as Error).message}`);
-  }
-}
-
-function json(raw: string, path: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`Invalid styles file ${path}: ${(error as Error).message}`);
-  }
 }
 
 /**

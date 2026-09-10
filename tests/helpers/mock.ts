@@ -281,6 +281,10 @@ export function testConfig(dbPath: string): Config {
     writingDir: `${dbPath}-writing`,
     // Absent unless a test writes one, which is the ordinary case.
     stylesPath: `${dbPath}-styles.json`,
+    charactersPath: `${dbPath}-characters.json`,
+    maxCharacterCards: 8,
+    maxCharacterFieldChars: 1200,
+    maxCharactersFileBytes: 65_536,
     cacheTtlHours: 168,
     logLevel: "silent",
     appUrl: "https://example.test",

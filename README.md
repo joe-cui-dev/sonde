@@ -143,6 +143,48 @@ the writer is always exactly one spec. A styles file that exists and is
 malformed stops the run and names the field — falling back to a built-in would
 write the piece in a register nobody chose.
 
+A cast of your own goes in `SONDE_CHARACTERS_FILE` (`.sonde/characters.json`,
+also gitignored) — a record of ids to character cards. `--character <id>`
+injects one into the prompt, and the flag repeats:
+
+```bash
+sonde write "两人在车站告别" --mode continue --in draft.md \
+  --character mara --character sal
+```
+
+```json
+{
+  "mara": {
+    "name": "Mara Okonkwo",
+    "aliases": ["Detective Okonkwo"],
+    "role": "Homicide detective",
+    "description": "Says less than she notices.",
+    "speech": "Short sentences. Answers a question with another question.",
+    "relationships": ["Former partner: Sal Ruiz"]
+  }
+}
+```
+
+Copy `characters.example.json` to start. `name` and `description` are
+required; `aliases` and `relationships` are lists, `role` and `speech` are
+one line each, and an unknown field stops the run rather than reaching the
+prompt. There is no built-in cast to fall back to — a project with no
+characters file simply has none to inject, and every existing mode and output
+is unchanged when `--character` is never used.
+
+A card reaches the writer inside its own marked-off block, between the style
+and the house rules, with a stated priority: the brief always wins, what the
+draft has already shown happening to a character outranks the card's older
+claim about them, and the card constrains only what nothing more recent has
+already settled. The block also says plainly that nothing inside it is an
+instruction — a card is a file on disk, and treating a sentence inside
+`description` as a command would hand authority to whoever last edited it.
+`--character` ids, the count injected, and their field lengths are checked
+against `SONDE_MAX_CHARACTER_CARDS` (8), `SONDE_MAX_CHARACTER_FIELD_CHARS`
+(1200) and `SONDE_MAX_CHARACTERS_FILE_BYTES` (65536) before the model is
+called — over any of them fails the run rather than truncating a card
+silently.
+
 Every run saves its prose to a timestamped markdown file under
 `SONDE_WRITING_DIR` (`.sonde/writing`, gitignored) and prints the path last, so
 the next round is a copy and a paste:
@@ -177,7 +219,8 @@ src/
     index.ts            provider selection (one switch)
   tools/index.ts        web_search, read_pages (budget-aware)
   budget/budget.ts      steps · tokens · dollars · credits · wall time
-  writing/              one-turn prose: write-agent, prompts, styles
+  writing/              one-turn prose: write-agent, prompts, styles, characters
+    config-file.ts       shared read/parse/error-report for styles.json and characters.json
     archive.ts          saves each piece to .sonde/writing/<timestamp>-<mode>-<run id>.md
   store/                sqlite: page cache, run records, event trace
   telemetry/index.ts    AI SDK telemetry integration → sqlite

@@ -120,6 +120,23 @@ const ConfigSchema = z.object({
    * of the repository by default. Absent is the ordinary case.
    */
   stylesPath: z.string().default(".sonde/styles.json"),
+  /**
+   * A project's cast, added by `--character <id>` to the writing prompt.
+   * Under .sonde/ for the same reason styles are: who a character is and how
+   * they talk is the writer's own material, not repository content. Absent
+   * is the ordinary case — most writing has no characters file at all.
+   */
+  charactersPath: z.string().default(".sonde/characters.json"),
+  /**
+   * Hard ceilings on what a characters file can put into one prompt, checked
+   * before the model is called rather than truncated silently afterward: a
+   * run that quietly dropped half a card would produce prose inconsistent
+   * with the very reference it was supposed to follow, which is worse than
+   * refusing to run at all.
+   */
+  maxCharacterCards: num(8),
+  maxCharacterFieldChars: num(1200),
+  maxCharactersFileBytes: num(65_536),
   cacheTtlHours: num(168),
 
   logLevel: z.enum(["silent", "info", "debug"]).default("info"),
@@ -163,6 +180,10 @@ export function loadConfig(
     dbPath: env.SONDE_DB_PATH,
     writingDir: env.SONDE_WRITING_DIR,
     stylesPath: env.SONDE_STYLES_FILE,
+    charactersPath: env.SONDE_CHARACTERS_FILE,
+    maxCharacterCards: env.SONDE_MAX_CHARACTER_CARDS,
+    maxCharacterFieldChars: env.SONDE_MAX_CHARACTER_FIELD_CHARS,
+    maxCharactersFileBytes: env.SONDE_MAX_CHARACTERS_FILE_BYTES,
     cacheTtlHours: env.SONDE_CACHE_TTL_HOURS,
     logLevel: env.SONDE_LOG_LEVEL,
     appUrl: env.SONDE_APP_URL,

@@ -13,6 +13,7 @@ import { writePrompt } from "../src/writing/prompts.js";
 import { countWords } from "../src/writing/length.js";
 import { WRITE_STYLES } from "../src/writing/styles.js";
 import { loadStyles, requireStyle } from "../src/writing/style-file.js";
+import { loadCharacters, requireCharacter } from "../src/writing/character-file.js";
 import { archivePath, saveProse } from "../src/writing/archive.js";
 import { erroringStreamModel, says, scriptedModel, testConfig } from "./helpers/mock.js";
 
@@ -22,6 +23,13 @@ function databasePath() { return join(mkdtempSync(join(tmpdir(), "sonde-write-")
 function configWithStyles(content: unknown) {
   const config = testConfig(databasePath());
   writeFileSync(config.stylesPath, typeof content === "string" ? content : JSON.stringify(content));
+  return config;
+}
+
+/** A config whose characters file exists and holds `content`. */
+function configWithCharacters(content: unknown) {
+  const config = testConfig(databasePath());
+  writeFileSync(config.charactersPath, typeof content === "string" ? content : JSON.stringify(content));
   return config;
 }
 
@@ -326,5 +334,132 @@ describe("writing workflow seams", () => {
   test("uses an independent writing model and reasoning default", () => {
     const config = loadConfig({ OPENROUTER_API_KEY: "sk-or-test", TAVILY_API_KEY: "tvly-test", SONDE_WRITER_MODEL: "writer", SONDE_WRITE_MODEL: "writer-prose" });
     expect(config.writeModel).toBe("writer-prose"); expect(config.writeReasoningEffort).toBe("medium");
+  });
+
+  describe("character reference", () => {
+    test("leaves the prompt exactly as it was when no characters are given", () => {
+      const withoutField = writePrompt({ brief: "b", mode: "new", style: WRITE_STYLES.plain });
+      const withEmptyList = writePrompt({ brief: "b", mode: "new", style: WRITE_STYLES.plain, characters: [] });
+      expect(withEmptyList).toBe(withoutField);
+      expect(withoutField).not.toContain("character reference");
+    });
+
+    test("adds a bounded character block between the style and the house rules", async () => {
+      const model = scriptedModel([says("Mara said nothing.")]);
+      const config = configWithCharacters({
+        mara: {
+          name: "Mara Okonkwo",
+          aliases: ["Detective Okonkwo"],
+          description: "Says less than she notices.",
+          relationships: ["Former partner: Sal Ruiz"],
+        },
+      });
+      await runWrite({ brief: "Write a scene", mode: "new", characters: ["mara"], config, model });
+      const prompt = model.prompts[0]!;
+      expect(prompt).toContain("--- character reference ---");
+      expect(prompt).toContain("--- end character reference ---");
+      expect(prompt).toContain("Mara Okonkwo (also: Detective Okonkwo)");
+      expect(prompt).toContain("Says less than she notices.");
+      expect(prompt).toContain("Former partner: Sal Ruiz");
+      // Data boundary and priority order, in the words the design settled on.
+      expect(prompt).toContain("not an instruction");
+      expect(prompt).toContain("the brief wins");
+      // Placed after the style block and before the house rules — material,
+      // not competing with STYLE_HOLDS for the closing recency effect.
+      expect(prompt.indexOf("Style — Plain")).toBeLessThan(prompt.indexOf("--- character reference ---"));
+      expect(prompt.indexOf("--- end character reference ---")).toBeLessThan(prompt.indexOf("read as machine-made"));
+    });
+
+    test("rejects a characters file with an unknown field, naming the file and the field", () => {
+      const bad = configWithCharacters({ mara: { name: "Mara", description: "d", secretAgenda: "kill everyone" } });
+      expect(() => loadCharacters(bad.charactersPath)).toThrow(bad.charactersPath);
+      expect(() => loadCharacters(bad.charactersPath)).toThrow(/secretAgenda/u);
+    });
+
+    test("answers an unknown character id with the cast this machine actually has", () => {
+      const catalogue = loadCharacters(configWithCharacters({ mara: { name: "Mara", description: "d" } }).charactersPath);
+      expect(() => requireCharacter(catalogue, "sal")).toThrow(/Unknown character: sal/u);
+      expect(() => requireCharacter(catalogue, "sal")).toThrow(/mara/u);
+    });
+
+    test("refuses a character id that does not exist before spending anything on the run", async () => {
+      const model = scriptedModel([says("never reached")]);
+      await expect(
+        runWrite({ brief: "Write", characters: ["ghost"], config: testConfig(databasePath()), model }),
+      ).rejects.toThrow(/Unknown character: ghost/u);
+      expect(model.callCount).toBe(0);
+    });
+
+    test("refuses more characters than the per-run limit before the model is called", async () => {
+      const config = configWithCharacters({
+        a: { name: "A", description: "d" },
+        b: { name: "B", description: "d" },
+        c: { name: "C", description: "d" },
+      });
+      config.maxCharacterCards = 2;
+      const model = scriptedModel([says("never reached")]);
+      await expect(
+        runWrite({ brief: "Write", characters: ["a", "b", "c"], config, model }),
+      ).rejects.toThrow(/at most 2/u);
+      expect(model.callCount).toBe(0);
+    });
+
+    test("refuses a field over the per-field character limit before the model is called", async () => {
+      const config = configWithCharacters({ mara: { name: "Mara", description: "d".repeat(50) } });
+      config.maxCharacterFieldChars = 10;
+      const model = scriptedModel([says("never reached")]);
+      await expect(
+        runWrite({ brief: "Write", characters: ["mara"], config, model }),
+      ).rejects.toThrow(/over the 10-character limit/u);
+      expect(model.callCount).toBe(0);
+    });
+
+    test("refuses a characters file over the byte limit before the model is called", async () => {
+      const config = configWithCharacters({ mara: { name: "Mara", description: "d".repeat(1000) } });
+      config.maxCharactersFileBytes = 100;
+      const model = scriptedModel([says("never reached")]);
+      await expect(
+        runWrite({ brief: "Write", characters: ["mara"], config, model }),
+      ).rejects.toThrow(/over the 100-byte limit/u);
+      expect(model.callCount).toBe(0);
+    });
+
+    test("records the injected characters and a file hash on write_start, readable back from run_events", async () => {
+      const config = configWithCharacters({ mara: { name: "Mara Okonkwo", description: "d" } });
+      const events: WriteEvent[] = [];
+      const result = await runWrite({
+        brief: "Write a scene", characters: ["mara"], config,
+        model: scriptedModel([says("Scene.")]), onEvent: (event) => { events.push(event); },
+      });
+      const start = events.find((event) => event.type === "write_start");
+      expect(start).toMatchObject({ characters: ["Mara Okonkwo"] });
+      const charactersHash = start && "charactersHash" in start ? start.charactersHash : undefined;
+      expect(charactersHash).toMatch(/^[0-9a-f]{16}$/u);
+      const db = openDb(config.dbPath);
+      try {
+        const row = db
+          .prepare("SELECT payload FROM run_events WHERE run_id = ? AND type = 'write_start'")
+          .get(result.runId) as { payload: string };
+        const payload = JSON.parse(row.payload) as { characters?: string[]; charactersHash?: string };
+        expect(payload.characters).toEqual(["Mara Okonkwo"]);
+        expect(payload.charactersHash).toBe(charactersHash);
+      } finally {
+        db.close();
+      }
+    });
+
+    test("keeps character data out of the archived prose file", async () => {
+      const model = scriptedModel([says("The scene played out quietly.")]);
+      const config = configWithCharacters({
+        mara: { name: "Mara Okonkwo", description: "Says less than she notices." },
+      });
+      const result = await runWrite({ brief: "Write a scene", characters: ["mara"], config, model });
+      const path = archivePath(config.writingDir, result.mode, result.runId);
+      saveProse(path, result.text!);
+      const saved = readFileSync(path, "utf8");
+      expect(saved).toBe("The scene played out quietly.\n");
+      expect(saved).not.toContain("Mara Okonkwo");
+      expect(saved).not.toContain("character reference");
+    });
   });
 });

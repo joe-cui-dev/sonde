@@ -1,0 +1,21 @@
+{
+  "mara": {
+    "name": "Mara Okonkwo",
+    "aliases": ["Detective Okonkwo"],
+    "role": "Homicide detective, thirty years into a city that keeps changing under her",
+    "description": "Says less than she notices. Reads a room by what people avoid looking at, not by what they say. Carries a grudge against her old partner she has never once mentioned aloud.",
+    "speech": "Short sentences. Answers a question with another question when she does not trust the one asking.",
+    "relationships": ["Former partner: Sal Ruiz, left the force under a cloud neither of them discusses", "Daughter: Priya, seventeen, barely speaks to her"]
+  },
+  "sal": {
+    "name": "Sal Ruiz",
+    "description": "Quit two years ago and opened a bar nobody in the department will admit to drinking at. Still thinks like a cop, which is most of what is wrong with him.",
+    "speech": "Talks around the point until someone makes him land on it.",
+    "relationships": ["Former partner: Mara Okonkwo"]
+  },
+  "priya": {
+    "name": "Priya Okonkwo",
+    "role": "Mara's daughter",
+    "description": "Seventeen. Fluent in the specific silence of a house where nobody explains anything. Notices more about her mother's cases than her mother knows."
+  }
+}
