@@ -61,12 +61,15 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
   // What each call was told about tool use. A mock cannot be made to obey
   // toolChoice, but a test can still check the instruction reached the model.
   const toolChoices: Array<string | undefined> = [];
+  const maxOutputTokens: Array<number | undefined> = [];
   const next = (options: {
     prompt?: unknown;
     toolChoice?: { type?: string };
+    maxOutputTokens?: number;
   }) => {
     prompts.push(flattenPrompt(options.prompt));
     toolChoices.push(options.toolChoice?.type);
+    maxOutputTokens.push(options.maxOutputTokens);
     const step = steps[index];
     index += 1;
     if (step === undefined)
@@ -113,6 +116,7 @@ export function scriptedModel(steps: Array<GenerateResult | Error>) {
   return Object.assign(model, {
     prompts,
     toolChoices,
+    maxOutputTokens,
     get callCount() {
       return index;
     },
@@ -184,6 +188,10 @@ export function reasoningThenTextModel(
   reasoningDeltas: string[],
   textDeltas: string[],
   costUsd = 0.001,
+  finishReason: GenerateResult["finishReason"] = {
+    unified: "stop",
+    raw: "stop",
+  },
 ) {
   return new MockLanguageModelV4({
     modelId: "mock/writer",
@@ -203,7 +211,7 @@ export function reasoningThenTextModel(
           controller.enqueue({ type: "text-end", id: "t1" });
           controller.enqueue({
             type: "finish",
-            finishReason: { unified: "stop", raw: "stop" },
+            finishReason,
             usage: usage(),
             providerMetadata: { openrouter: { usage: { cost: costUsd } } },
           });

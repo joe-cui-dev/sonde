@@ -115,7 +115,12 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
         brief, draft: options.draft, mode, style: spec, characters,
         language: options.language, length: options.length,
       }),
-      maxOutputTokens: outputTokenLimit(options.length, mode, options.draft),
+      maxOutputTokens: outputTokenLimit(
+        options.length,
+        mode,
+        options.draft,
+        effort,
+      ),
       abortSignal: signal,
       onError: ({ error }) => { streamError ??= error; },
     });
@@ -134,11 +139,38 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
         emit({ type: "text_delta", delta: part.text });
       }
     }
-    const [usage, metadata] = await Promise.all([result.usage, result.providerMetadata]);
+    const [usage, metadata, finishReason, rawFinishReason] = await Promise.all([
+      result.usage,
+      result.providerMetadata,
+      result.finishReason,
+      result.rawFinishReason,
+    ]);
     budget.countStep();
     budget.addModelUsage(readModelUsage({ usage, providerMetadata: metadata }));
     if (streamError) throw streamError;
     if (timeout.aborted || options.signal?.aborted) throw signal.reason;
+    const finishDetail = rawFinishReason && rawFinishReason !== finishReason
+      ? `${finishReason}; provider: ${rawFinishReason}`
+      : finishReason;
+    // A provider may spend the whole completion on reasoning and then end the
+    // stream cleanly. Transport success is not a completed writing run: prose
+    // is the product, and claiming an empty result completed leaves the caller
+    // with neither a draft nor an explanation of what happened.
+    if (text.trim() === "") {
+      text = "";
+      throw new Error(
+        finishReason === "length"
+          ? `model returned no prose before reaching the output token limit (finish reason: ${finishDetail})`
+          : `model returned no prose (finish reason: ${finishDetail})`,
+      );
+    }
+    // The text already streamed is still useful, but a length finish means it
+    // is partial prose, not the finished piece the run promised to deliver.
+    if (finishReason === "length") {
+      throw new Error(
+        `model reached the output token limit (finish reason: ${finishDetail})`,
+      );
+    }
   } catch (error) {
     stoppedBy = timeout.aborted && !options.signal?.aborted ? "max_wall_ms" : "error";
     const detail = error instanceof Error ? error.message : String(error);
@@ -183,6 +215,24 @@ const SHORTFALL_TOLERANCE = 0.9;
 const TOKENS_PER_WORD = 2;
 
 /**
+ * Approximate share of an OpenRouter completion left for non-reasoning output
+ * at each normalized effort. `default` is provider-owned, so reserve the same
+ * space as Sonde's writing default (medium) without pretending it is exact.
+ */
+const PROSE_SHARE_BY_REASONING_EFFORT: Record<
+  Config["writeReasoningEffort"],
+  number
+> = {
+  none: 1,
+  minimal: 0.9,
+  low: 0.8,
+  medium: 0.5,
+  high: 0.2,
+  xhigh: 0.05,
+  default: 0.5,
+};
+
+/**
  * Continue hands the draft back inside the finished piece, so its ceiling has
  * to pay for the draft as well as for the new prose. New and expand both return
  * new writing only.
@@ -190,11 +240,22 @@ const TOKENS_PER_WORD = 2;
 function outputTokenLimit(
   length: number | undefined,
   mode: WriteMode,
-  draft?: string,
+  draft: string | undefined,
+  reasoningEffort: Config["writeReasoningEffort"],
 ): number {
   const target = length ?? DEFAULT_LENGTH;
   const carried = mode === "continue" ? estimateTokens(draft ?? "") : 0;
-  return Math.max(128, Math.ceil(target * TOKENS_PER_WORD + carried));
+  const proseTokens = Math.max(128, Math.ceil(target * TOKENS_PER_WORD + carried));
+
+  // OpenRouter's completion ceiling includes reasoning. Its normalized effort
+  // levels allocate approximately 10/20/50/80/95 percent of that ceiling to
+  // reasoning, so sending only the prose allowance can let thinking consume
+  // the room intended for the piece. Inflate the shared ceiling just enough
+  // that the original prose allowance remains after that allocation. `default`
+  // is unknowable by definition; medium is the least surprising reserve.
+  return Math.ceil(
+    proseTokens / PROSE_SHARE_BY_REASONING_EFFORT[reasoningEffort],
+  );
 }
 
 /** An upper bound, not a measure: CJK text runs near a token per character. */

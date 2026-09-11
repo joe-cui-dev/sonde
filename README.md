@@ -342,6 +342,12 @@ model` until prose starts. The status line clears the moment the first prose
 token arrives, and the reasoning content itself is never printed, returned, or
 persisted — only its presence is used, as a liveness signal.
 
+The output-token ceiling includes both reasoning and prose. Sonde scales that
+ceiling with `SONDE_WRITE_REASONING_EFFORT` so the requested prose keeps its
+allowance after the model's reasoning share. If a provider nevertheless ends a
+run without producing any prose, the run is marked incomplete and reports its
+finish reason instead of claiming that an empty piece completed.
+
 `--quiet`, non-TTY stderr, `--json`, `--out`, and piped use are all unaffected:
 none of them show progress text, and stdout/file/JSON output is exactly the
 finished prose, as before.
