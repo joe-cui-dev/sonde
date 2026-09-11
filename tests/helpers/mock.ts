@@ -172,6 +172,48 @@ export function streamedModel(value: unknown, costUsd = 0.001) {
   });
 }
 
+/**
+ * A writer that reasons before it writes: `reasoning-start`, one or more
+ * `reasoning-delta` parts, `reasoning-end`, then prose — the shape a
+ * reasoning-capable provider sends through AI SDK v7's stream. Provider-level
+ * stream parts carry `delta`, unlike the public `result.stream` parts
+ * `runWrite` reads, which carry `text` (see `LanguageModelV4StreamPart` vs
+ * `TextStreamPart`).
+ */
+export function reasoningThenTextModel(
+  reasoningDeltas: string[],
+  textDeltas: string[],
+  costUsd = 0.001,
+) {
+  return new MockLanguageModelV4({
+    modelId: "mock/writer",
+    doStream: {
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings: [] });
+          controller.enqueue({ type: "reasoning-start", id: "r1" });
+          for (const delta of reasoningDeltas) {
+            controller.enqueue({ type: "reasoning-delta", id: "r1", delta });
+          }
+          controller.enqueue({ type: "reasoning-end", id: "r1" });
+          controller.enqueue({ type: "text-start", id: "t1" });
+          for (const delta of textDeltas) {
+            controller.enqueue({ type: "text-delta", id: "t1", delta });
+          }
+          controller.enqueue({ type: "text-end", id: "t1" });
+          controller.enqueue({
+            type: "finish",
+            finishReason: { unified: "stop", raw: "stop" },
+            usage: usage(),
+            providerMetadata: { openrouter: { usage: { cost: costUsd } } },
+          });
+          controller.close();
+        },
+      }),
+    },
+  });
+}
+
 /** Collapses a prompt's messages into one searchable string. */
 function flattenPrompt(prompt: unknown): string {
   const messages = (prompt ?? []) as Array<{ content?: unknown }>;

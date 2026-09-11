@@ -1,6 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 
-import { ReportPreviewRenderer } from "../src/cli-preview.js";
+import { ReportPreviewRenderer, type PreviewClock } from "../src/cli-preview.js";
 import { WritingPreviewRenderer } from "../src/writing-preview.js";
 
 function output(tty = true) {
@@ -13,6 +13,43 @@ function output(tty = true) {
     },
     get text() {
       return text;
+    },
+  };
+}
+
+/** A deterministic clock: `advance(ms)` fires any interval callbacks whose
+ * schedule has elapsed. Real timers are never used in these tests, so a run
+ * cannot leave a hung Jest process behind. */
+function fakeClock(): PreviewClock & { advance(ms: number): void; intervalCount: number } {
+  let now = 0;
+  let nextId = 1;
+  const intervals = new Map<number, { ms: number; due: number; callback: () => void }>();
+  return {
+    now: () => now,
+    setInterval(callback: () => void, ms: number) {
+      const id = nextId++;
+      intervals.set(id, { ms, due: now + ms, callback });
+      return id as unknown as ReturnType<typeof setInterval>;
+    },
+    clearInterval(timer: ReturnType<typeof setInterval>) {
+      intervals.delete(timer as unknown as number);
+    },
+    advance(ms: number) {
+      const target = now + ms;
+      while (true) {
+        const due = [...intervals.entries()]
+          .filter(([, entry]) => entry.due <= target)
+          .sort((a, b) => a[1].due - b[1].due)[0];
+        if (!due) break;
+        const [, entry] = due;
+        now = entry.due;
+        entry.due += entry.ms;
+        entry.callback();
+      }
+      now = target;
+    },
+    get intervalCount() {
+      return intervals.size;
     },
   };
 }
@@ -111,5 +148,148 @@ describe("WritingPreviewRenderer", () => {
 
     expect(renderer.streamed).toBe(false);
     expect(stderr.text).toBe("");
+  });
+
+  test("start() immediately shows waiting at 0 seconds and schedules one-second updates", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.start();
+
+    expect(stderr.text).toContain("Writing · waiting for model · 0s · Ctrl-C to cancel");
+    expect(clock.intervalCount).toBe(1);
+
+    clock.advance(1_000);
+    expect(stderr.text).toContain("Writing · waiting for model · 1s · Ctrl-C to cancel");
+
+    clock.advance(11_000);
+    expect(stderr.text).toContain("Writing · waiting for model · 12s · Ctrl-C to cancel");
+  });
+
+  test("thinking() switches the label only after being called, and only from an observed phase event", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.start();
+    expect(stderr.text).not.toContain("thinking");
+
+    renderer.thinking();
+    expect(stderr.text).toContain("Writing · thinking · 0s · Ctrl-C to cancel");
+
+    clock.advance(12_000);
+    expect(stderr.text).toContain("Writing · thinking · 12s · Ctrl-C to cancel");
+  });
+
+  test("thinking() starts the renderer defensively when start() was never called", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.thinking();
+
+    expect(stderr.text).toContain("Writing · thinking · 0s · Ctrl-C to cancel");
+    expect(clock.intervalCount).toBe(1);
+  });
+
+  test("first prose clears the transient status, stops the timer, and appends the delta once", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.start();
+    clock.advance(3_000);
+    renderer.update("Finished ");
+
+    expect(clock.intervalCount).toBe(0);
+    expect(renderer.streamed).toBe(true);
+    expect(stderr.text.endsWith("Finished ")).toBe(true);
+
+    renderer.update("prose.");
+    expect(stderr.text.endsWith("Finished prose.")).toBe(true);
+
+    // Advancing further must not resurrect the status line: the timer is gone.
+    clock.advance(5_000);
+    expect(stderr.text.endsWith("Finished prose.")).toBe(true);
+  });
+
+  test("repeated start()/thinking() calls do not create multiple intervals or duplicate headers", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.start();
+    renderer.start();
+    renderer.thinking();
+    renderer.thinking();
+
+    expect(clock.intervalCount).toBe(1);
+  });
+
+  test("complete() clears a live timer, both before and after prose", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const beforeProse = new WritingPreviewRenderer(stderr, clock);
+    beforeProse.start();
+    beforeProse.complete();
+    expect(clock.intervalCount).toBe(0);
+    expect(stderr.text).toContain("[writing complete]");
+
+    const stderr2 = output();
+    const clock2 = fakeClock();
+    const afterProse = new WritingPreviewRenderer(stderr2, clock2);
+    afterProse.start();
+    afterProse.update("Some prose.");
+    afterProse.complete();
+    expect(clock2.intervalCount).toBe(0);
+    expect(stderr2.text).toContain("[writing complete]");
+  });
+
+  test("fail() clears a live timer, both before and after prose", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const beforeProse = new WritingPreviewRenderer(stderr, clock);
+    beforeProse.start();
+    beforeProse.fail("provider stopped");
+    expect(clock.intervalCount).toBe(0);
+    expect(stderr.text).toContain("[writing incomplete: provider stopped]");
+
+    const stderr2 = output();
+    const clock2 = fakeClock();
+    const afterProse = new WritingPreviewRenderer(stderr2, clock2);
+    afterProse.start();
+    afterProse.update("Some prose.");
+    afterProse.fail("timed out");
+    expect(clock2.intervalCount).toBe(0);
+    expect(stderr2.text).toContain("[writing incomplete: timed out]");
+  });
+
+  test("does nothing and creates no timer on non-interactive output", () => {
+    const stderr = output(false);
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.start();
+    renderer.thinking();
+    renderer.update("Must not leak into a pipe.");
+    renderer.complete();
+
+    expect(clock.intervalCount).toBe(0);
+    expect(renderer.streamed).toBe(false);
+    expect(stderr.text).toBe("");
+  });
+
+  test("a status line alone does not set streamed, preserving final stdout delivery on a no-prose failure", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.start();
+    renderer.thinking();
+    clock.advance(2_000);
+    renderer.fail("upstream stopped before any prose");
+
+    expect(renderer.streamed).toBe(false);
   });
 });

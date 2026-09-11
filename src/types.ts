@@ -162,6 +162,13 @@ export type WriteEvent =
       /** Fingerprint of the characters file they came from — see hashCharactersFile. */
       charactersHash?: string;
     }
+  /**
+   * A coarse, trustworthy phase transition for progress feedback. `thinking`
+   * fires once, only after an observed provider reasoning event — never
+   * assumed. `writing` fires once, immediately before the first non-empty
+   * prose delta. Raw reasoning text itself never appears in a `WriteEvent`.
+   */
+  | { type: "write_phase"; phase: "thinking" | "writing" }
   | { type: "text_delta"; delta: string }
   | { type: "warning"; message: string }
   | { type: "write_end"; result: WriteResult };

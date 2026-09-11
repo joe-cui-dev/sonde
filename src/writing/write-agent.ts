@@ -119,9 +119,20 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
       abortSignal: signal,
       onError: ({ error }) => { streamError ??= error; },
     });
-    for await (const delta of result.textStream) {
-      text += delta;
-      emit({ type: "text_delta", delta });
+    // The full stream, not textStream: a reasoning-capable provider's
+    // reasoning-start/-delta parts arrive here and nowhere else, and they are
+    // the only trustworthy signal that the model has started working before
+    // any prose exists. Their text is never read — only their presence.
+    let thinkingEmitted = false;
+    let writingEmitted = false;
+    for await (const part of result.stream) {
+      if (part.type === "reasoning-start" || (part.type === "reasoning-delta" && part.text !== "")) {
+        if (!thinkingEmitted) { thinkingEmitted = true; emit({ type: "write_phase", phase: "thinking" }); }
+      } else if (part.type === "text-delta" && part.text !== "") {
+        if (!writingEmitted) { writingEmitted = true; emit({ type: "write_phase", phase: "writing" }); }
+        text += part.text;
+        emit({ type: "text_delta", delta: part.text });
+      }
     }
     const [usage, metadata] = await Promise.all([result.usage, result.providerMetadata]);
     budget.countStep();

@@ -15,7 +15,7 @@ import { WRITE_STYLES } from "../src/writing/styles.js";
 import { loadStyles, requireStyle } from "../src/writing/style-file.js";
 import { loadCharacters, requireCharacter } from "../src/writing/character-file.js";
 import { archivePath, saveProse } from "../src/writing/archive.js";
-import { erroringStreamModel, says, scriptedModel, testConfig } from "./helpers/mock.js";
+import { erroringStreamModel, reasoningThenTextModel, says, scriptedModel, testConfig } from "./helpers/mock.js";
 
 function databasePath() { return join(mkdtempSync(join(tmpdir(), "sonde-write-")), "sonde.db"); }
 
@@ -68,7 +68,12 @@ describe("writing workflow seams", () => {
     const result = await runWrite({ brief: "Write a note", config: testConfig(dbPath), model, onEvent: (event) => { events.push(event); } });
     expect(result).toMatchObject({ text: "Finished prose.", complete: true, stoppedBy: "complete", mode: "new" });
     expect(model.prompts[0]).toContain("complete, finished piece");
-    expect(events.map((event) => event.type)).toEqual(["write_start", "text_delta", "text_delta", "write_end"]);
+    expect(events.map((event) => event.type)).toEqual([
+      "write_start", "write_phase", "text_delta", "text_delta", "write_end",
+    ]);
+    expect(events.filter((event) => event.type === "write_phase")).toEqual([
+      { type: "write_phase", phase: "writing" },
+    ]);
     expect(events.filter((event) => event.type === "text_delta")).toEqual([
       { type: "text_delta", delta: "Finished " },
       { type: "text_delta", delta: "prose." },
@@ -78,8 +83,50 @@ describe("writing workflow seams", () => {
       expect(new RunStore(db).recent()[0]).toMatchObject({ kind: "writing", question: "Write a note" });
       expect(db.prepare("SELECT report_json FROM runs WHERE id = ?").get(result.runId))
         .toMatchObject({ report_json: "Finished prose." });
+      // The coarse write_phase transition is persisted alongside write_start;
+      // raw reasoning never is, since it never becomes a WriteEvent at all.
       expect(db.prepare("SELECT type FROM run_events WHERE run_id = ? ORDER BY id").all(result.runId))
-        .toEqual([{ type: "write_start" }]);
+        .toEqual([{ type: "write_start" }, { type: "write_phase" }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("emits exactly one thinking phase then one writing phase for a reasoning provider, with no raw reasoning anywhere", async () => {
+    const dbPath = databasePath();
+    const model = reasoningThenTextModel(
+      ["Let me consider ", "the angle here."],
+      ["Finished ", "prose."],
+    );
+    const events: WriteEvent[] = [];
+    const result = await runWrite({
+      brief: "Write a note", config: testConfig(dbPath), model,
+      onEvent: (event) => { events.push(event); },
+    });
+    expect(result.text).toBe("Finished prose.");
+    expect(events.map((event) => event.type)).toEqual([
+      "write_start", "write_phase", "write_phase", "text_delta", "text_delta", "write_end",
+    ]);
+    expect(events.filter((event) => event.type === "write_phase")).toEqual([
+      { type: "write_phase", phase: "thinking" },
+      { type: "write_phase", phase: "writing" },
+    ]);
+    // Reasoning text itself must never surface — not in the events, and not
+    // folded into the accumulated prose.
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain("Let me consider");
+    expect(serialized).not.toContain("the angle here");
+    const db = openDb(dbPath);
+    try {
+      expect(db.prepare("SELECT report_json FROM runs WHERE id = ?").get(result.runId))
+        .toMatchObject({ report_json: "Finished prose." });
+      const persisted = db
+        .prepare("SELECT type, payload FROM run_events WHERE run_id = ? ORDER BY id")
+        .all(result.runId) as Array<{ type: string; payload: string }>;
+      expect(persisted.map((row) => row.type)).toEqual(["write_start", "write_phase", "write_phase"]);
+      const persistedText = persisted.map((row) => row.payload).join("\n");
+      expect(persistedText).not.toContain("Let me consider");
+      expect(persistedText).not.toContain("the angle here");
     } finally {
       db.close();
     }
@@ -91,13 +138,14 @@ describe("writing workflow seams", () => {
     const result = await runWrite({ brief: "Write", config: testConfig(dbPath), model: erroringStreamModel("upstream stopped", "Useful beginning."), onEvent: (event) => { events.push(event); } });
     expect(result).toMatchObject({ text: "Useful beginning.", complete: false, stoppedBy: "error" });
     expect(result.warnings.join(" ")).toContain("upstream stopped");
+    expect(events).toContainEqual({ type: "write_phase", phase: "writing" });
     expect(events).toContainEqual({ type: "text_delta", delta: "Useful beginning." });
     const db = openDb(dbPath);
     try {
       expect(db.prepare("SELECT report_json FROM runs WHERE id = ?").get(result.runId))
         .toMatchObject({ report_json: "Useful beginning." });
       expect(db.prepare("SELECT type FROM run_events WHERE run_id = ? ORDER BY id").all(result.runId))
-        .toEqual([{ type: "write_start" }, { type: "warning" }]);
+        .toEqual([{ type: "write_start" }, { type: "write_phase" }, { type: "warning" }]);
     } finally {
       db.close();
     }

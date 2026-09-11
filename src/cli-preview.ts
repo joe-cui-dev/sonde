@@ -12,7 +12,8 @@ export interface PreviewClock {
   clearInterval(timer: ReturnType<typeof setInterval>): void;
 }
 
-const systemClock: PreviewClock = {
+/** The real clock, shared by every terminal renderer that needs one. */
+export const systemClock: PreviewClock = {
   now: () => Date.now(),
   setInterval,
   clearInterval,

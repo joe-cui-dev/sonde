@@ -242,7 +242,17 @@ async function writeCommand(
   const log = createLogger(config.logLevel);
   const controller = new AbortController(); process.once("SIGINT", () => controller.abort());
   const preview = new WritingPreviewRenderer(process.stderr);
-  const result = await runWrite({ brief, draft, mode, style, characters, language: typeof values.lang === "string" ? values.lang : undefined, length, config, signal: controller.signal, onEvent: (event) => { if (!values.quiet && event.type === "text_delta") preview.update(event.delta); } });
+  const result = await runWrite({
+    brief, draft, mode, style, characters,
+    language: typeof values.lang === "string" ? values.lang : undefined,
+    length, config, signal: controller.signal,
+    onEvent: (event) => {
+      if (values.quiet) return;
+      if (event.type === "write_start") preview.start();
+      else if (event.type === "write_phase" && event.phase === "thinking") preview.thinking();
+      else if (event.type === "text_delta") preview.update(event.delta);
+    },
+  });
   const savedTo = archiveProse(result, config, log);
   const output = values.json ? JSON.stringify({ ...result, savedTo }, null, 2) + "\n" : writeText(result);
 
