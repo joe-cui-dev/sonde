@@ -33,8 +33,9 @@ Options
       --mode <mode>      new (default), continue, or expand
       --in <file>        read a draft (stdin is used when piped)
       --style <style>    ${Object.keys(WRITE_STYLES).join(", ")}
-                         (default: match under continue and expand, plain under new)
                          plus any style in SONDE_STYLES_FILE
+                         (default: match under continue and expand; under new,
+                         no style is sent at all unless you name one)
       --character <id>   inject a character reference by id (repeatable);
                          ids come from SONDE_CHARACTERS_FILE
       --show-prompt      print the complete model prompt to stderr before sending
@@ -215,9 +216,9 @@ async function writeCommand(
 ): Promise<number> {
   const mode = (values.mode ?? "new") as WriteMode;
   if (!(["new", "continue", "expand"] as string[]).includes(mode)) throw new Error("--mode must be new, continue, or expand.");
-  // Left undefined when the flag is absent, so the workflow can pick the default
-  // that suits the mode: a continue or expand run takes its register from the
-  // draft, and pinning "plain" here would have overridden that before it ran.
+  // Left undefined when the flag is absent, so the workflow can decide what the
+  // mode calls for: a continue or expand run takes its register from the draft,
+  // and a new run takes none — neither of which a value pinned here could say.
   const style = typeof values.style === "string" ? values.style : undefined;
   const characters = Array.isArray(values.character) ? values.character : [];
   const brief = args.join(" ").trim();

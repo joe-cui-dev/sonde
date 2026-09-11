@@ -449,15 +449,28 @@ describe("writing workflow seams", () => {
     expect(model.prompts[0]).toContain("the seam does not show");
   });
 
-  test("falls back to plain only where there is no draft to take a register from", async () => {
+  test("sends no register at all when a new run is given no style", async () => {
     const model = scriptedModel([says("A note.")]);
     const result = await runWrite({
       brief: "Write a note",
       config: testConfig(databasePath()),
       model,
     });
-    expect(result.style).toBe("plain");
-    expect(model.prompts[0]).toContain("Style — Plain");
+    // Nothing is picked on the writer's behalf: no spec, and no closing line
+    // telling it to hold one.
+    expect(result.style).toBeNull();
+    expect(model.prompts[0]).not.toContain("Style —");
+    expect(model.prompts[0]).not.toContain("Hold the style described above");
+    // The rules that belong to no style are sent either way.
+    expect(model.prompts[0]).toContain("keep clear of the habits");
+  });
+
+  test("omits the style section entirely when writePrompt is given no style", () => {
+    const prompt = writePrompt({ brief: "b", mode: "new" });
+    expect(prompt).not.toContain("Style —");
+    expect(prompt).not.toContain("Do this:");
+    expect(prompt).not.toContain("Hold the style described above");
+    expect(prompt).toContain("Brief:\nb");
   });
 
   test("gives the writer moves and failures instead of an adjective", () => {

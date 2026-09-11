@@ -109,7 +109,7 @@ and the failure it falls into:
 | Style | Use |
 | --- | --- |
 | `match` | take the register from the draft (default under `continue` and `expand`) |
-| `plain` | direct, clear prose (default under `new`) |
+| `plain` | direct, clear prose |
 | `literary` | controlled imagery and rhythm |
 | `reportage` | scene-led journalistic prose |
 | `commentary` | a considered argument |
@@ -117,9 +117,11 @@ and the failure it falls into:
 | `business` | concise, decision-oriented writing |
 
 Leave `--style` off when continuing or expanding: `match` reads the register out
-of the draft, and any other choice would show at the seam. Every style also
-carries a shared set of house rules against the habits that make prose read as
-machine-made, in whatever language it is written.
+of the draft, and any other choice would show at the seam. Leaving it off under
+`new` sends no style at all — the prompt carries no register, and the brief is
+the only thing shaping the prose. The house rules against the habits that make
+prose read as machine-made are sent either way, in whatever language the piece
+is written.
 
 Styles of your own go in `SONDE_STYLES_FILE` (`.sonde/styles.json`, gitignored
 along with the rest of `.sonde/`) — a register is personal, and it has no

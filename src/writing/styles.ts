@@ -165,9 +165,15 @@ export function renderStyle(style: WriteStyle): string {
 
 /**
  * A continue or expand run writes into prose that already has a register, and
- * one chosen for it would show at exactly the seam it is meant to hide. New
- * writing has no draft to take a register from, so it gets the plainest default.
+ * one chosen for it would show at exactly the seam it is meant to hide, so
+ * those two modes default to taking the register from the draft.
+ *
+ * New writing has no draft to take a register from, and rather than pick one
+ * on the writer's behalf it gets none: an unasked-for register is a constraint
+ * nobody wrote into the brief, and a brief that wants one can say so in its own
+ * words. With no style the prompt carries no style section at all — see
+ * `writePrompt`.
  */
-export function defaultStyle(mode: WriteMode): BuiltInStyleId {
-  return mode === "new" ? "plain" : "match";
+export function defaultStyle(mode: WriteMode): BuiltInStyleId | undefined {
+  return mode === "new" ? undefined : "match";
 }

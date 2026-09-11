@@ -146,7 +146,11 @@ export interface WriteResult {
   brief: string;
   text: string | null;
   complete: boolean;
-  style: WriteStyleId;
+  /**
+   * The register the run wrote in, or null when it had none: a new run given
+   * no `--style` takes no register, and the prompt carries no style section.
+   */
+  style: WriteStyleId | null;
   usage: BudgetSnapshot;
   stoppedBy: StopReason;
   warnings: string[];

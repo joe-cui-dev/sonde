@@ -46,8 +46,12 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   const style = options.style ?? defaultStyle(mode);
   // Resolved before anything is opened, spent, or recorded: a style that does
   // not exist is a typo in the command, and the run should die on it rather
-  // than on the far side of a paid model call.
-  const spec = requireStyle(loadStyles(config.stylesPath), style);
+  // than on the far side of a paid model call. No style at all is not a typo —
+  // it is a new run that was given none and wants none, so nothing is loaded
+  // and the prompt goes out without a register.
+  const spec = style === undefined
+    ? undefined
+    : requireStyle(loadStyles(config.stylesPath), style);
   // Characters are resolved at the same point and for the same reason: an
   // unknown id, or a run that asks for more people or bigger fields than the
   // hard limits allow, is a mistake in the command that should fail here,
@@ -199,7 +203,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     }
   }
   const result: WriteResult = {
-    runId, mode, brief, text: text || null, complete, style,
+    runId, mode, brief, text: text || null, complete, style: style ?? null,
     usage: budget.snapshot(), stoppedBy, warnings,
   };
   store.finishWrite(runId, stoppedBy, result.usage, result.text);

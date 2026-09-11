@@ -6,7 +6,12 @@ export interface WritePromptOptions {
   brief: string;
   draft?: string;
   mode: WriteMode;
-  style: WriteStyle;
+  /**
+   * Absent when the run was given no style and the mode has no default for
+   * one. The prompt then carries no style section and no closing hold: the
+   * writer is left to the brief, which is the only register anyone asked for.
+   */
+  style?: WriteStyle;
   characters?: CharacterCard[];
   language?: string;
   length?: number;
@@ -17,7 +22,7 @@ export function writePrompt(options: WritePromptOptions): string {
     "You are Sonde's writing workflow. Produce prose only: no citations, source list, preamble, or discussion of your process.",
     MODE_INSTRUCTIONS[options.mode],
     BRIEF_IS_BINDING,
-    renderStyle(options.style),
+    options.style ? renderStyle(options.style) : "",
     // Sits after the style and before the house rules — material, not the
     // brief and not the closing rules, so it does not compete with either for
     // the recency effect STYLE_HOLDS is placed at the very end to claim.
@@ -28,7 +33,7 @@ export function writePrompt(options: WritePromptOptions): string {
     options.language ? `Write in ${options.language}.` : "",
     `Brief:\n${options.brief}`,
     options.draft ? `Draft:\n${options.draft}` : "",
-    STYLE_HOLDS(options.style),
+    options.style ? STYLE_HOLDS(options.style) : "",
   ]
     .filter(Boolean)
     .join("\n\n");

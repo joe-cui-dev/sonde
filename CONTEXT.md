@@ -91,7 +91,10 @@ what constrains a sentence is a move the writer can perform and a failure it can
 be told to steer around. Every style names both, and `match` is the one with no
 register of its own — it takes
 the draft's, which is why it is the default under continue and expand, where a
-register chosen for the run would show at the seam it exists to hide.
+register chosen for the run would show at the seam it exists to hide. A new run
+has no default: unnamed, the style is absent, and the prompt goes out with no
+style section and no closing hold at all, rather than a register nobody asked
+for.
 _Avoid_: Voice, tone, persona
 
 **Styles file**:
