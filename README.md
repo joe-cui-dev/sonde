@@ -185,6 +185,19 @@ against `SONDE_MAX_CHARACTER_CARDS` (8), `SONDE_MAX_CHARACTER_FIELD_CHARS`
 called — over any of them fails the run rather than truncating a card
 silently.
 
+To inspect the complete application-level prompt for a write run, add
+`--show-prompt`. Sonde prints the exact string it is about to hand to the model
+to stderr, between visible markers, and then continues the run normally:
+
+```bash
+sonde write "两人在车站告别" --style literary --character mara --show-prompt
+```
+
+The displayed prompt includes the brief, any input draft, the resolved style,
+and every selected character card, so treat terminal captures as sensitive.
+The prompt is displayed for that invocation only; it is not added to the saved
+prose, JSON result, or run database.
+
 Every run saves its prose to a timestamped markdown file under
 `SONDE_WRITING_DIR` (`.sonde/writing`, gitignored) and prints the path last, so
 the next round is a copy and a paste:

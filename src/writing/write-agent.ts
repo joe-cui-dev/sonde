@@ -32,6 +32,8 @@ export interface RunWriteOptions {
   config?: Config;
   limits?: Partial<BudgetLimits>;
   onEvent?: WriteEventSink;
+  /** Observe the exact application-level prompt that will be handed to the model. */
+  onPrompt?: (prompt: string) => void;
   signal?: AbortSignal;
   runId?: string;
   model?: LanguageModel;
@@ -60,6 +62,14 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   const catalogue = loadCharacters(config.charactersPath, config.maxCharactersFileBytes);
   const characters = characterIds.map((id) => requireCharacter(catalogue, id));
   for (const card of characters) assertFieldLimit(card, config.maxCharacterFieldChars);
+  // Build this once, expose that same immutable string to diagnostics, and
+  // then hand it to streamText. Keeping one value avoids a prompt preview
+  // drifting away from the request it claims to show.
+  const prompt = writePrompt({
+    brief, draft: options.draft, mode, style: spec, characters,
+    language: options.language, length: options.length,
+  });
+  options.onPrompt?.(prompt);
   const limits: BudgetLimits = {
     maxSteps: config.maxSteps, maxUsd: config.maxUsd,
     maxTokens: config.maxTokens, maxSearchCredits: config.maxSearchCredits,
@@ -113,10 +123,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   try {
     const result = streamText({
       model,
-      prompt: writePrompt({
-        brief, draft: options.draft, mode, style: spec, characters,
-        language: options.language, length: options.length,
-      }),
+      prompt,
       maxOutputTokens: outputTokenLimit(
         options.length,
         mode,

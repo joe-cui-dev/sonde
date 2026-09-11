@@ -514,6 +514,36 @@ describe("writing workflow seams", () => {
     expect(model.prompts[0]).toContain("Period pastiche");
   });
 
+  test("exposes exactly the prompt sent to the model for --show-prompt", async () => {
+    const config = configWithStyles(NOIR);
+    writeFileSync(
+      config.charactersPath,
+      JSON.stringify({
+        mara: {
+          name: "Mara Okonkwo",
+          description: "Says less than she notices.",
+        },
+      }),
+    );
+    const model = scriptedModel([says("Mara waited.")]);
+    const shown: string[] = [];
+
+    await runWrite({
+      brief: "Write a scene",
+      style: "noir",
+      characters: ["mara"],
+      config,
+      model,
+      onPrompt: (prompt) => shown.push(prompt),
+    });
+
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toBe(model.prompts[0]);
+    expect(shown[0]).toContain("Style — Noir");
+    expect(shown[0]).toContain("--- character reference ---");
+    expect(shown[0]).toContain("Mara Okonkwo");
+  });
+
   test("lets a styles file entry replace the built-in style it is named for", async () => {
     const model = scriptedModel([says("Eleven minutes.")]);
     await runWrite({

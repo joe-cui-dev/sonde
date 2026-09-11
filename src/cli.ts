@@ -37,6 +37,7 @@ Options
                          plus any style in SONDE_STYLES_FILE
       --character <id>   inject a character reference by id (repeatable);
                          ids come from SONDE_CHARACTERS_FILE
+      --show-prompt      print the complete model prompt to stderr before sending
       --lang <language>  language for writing
       --length <n>       words to write; under expand, the length of the
                          passage it returns
@@ -69,6 +70,7 @@ async function main(): Promise<number> {
       in: { type: "string" },
       style: { type: "string" },
       character: { type: "string", multiple: true },
+      "show-prompt": { type: "boolean", default: false },
       lang: { type: "string" },
       length: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
@@ -246,6 +248,13 @@ async function writeCommand(
     brief, draft, mode, style, characters,
     language: typeof values.lang === "string" ? values.lang : undefined,
     length, config, signal: controller.signal,
+    onPrompt: values["show-prompt"]
+      ? (prompt) => {
+          process.stderr.write(
+            `\n--- Sonde model prompt ---\n${prompt}\n--- end Sonde model prompt ---\n\n`,
+          );
+        }
+      : undefined,
     onEvent: (event) => {
       if (values.quiet) return;
       if (event.type === "write_start") preview.start();
