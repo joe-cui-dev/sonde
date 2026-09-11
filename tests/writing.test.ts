@@ -134,7 +134,7 @@ describe("writing workflow seams", () => {
           .get(result.runId),
       ).toMatchObject({ report_json: "Finished prose." });
       // The coarse write_phase transition is persisted alongside write_start;
-      // raw reasoning never is, since it never becomes a WriteEvent at all.
+      // reasoning never is — it reaches the terminal as an event and stops there.
       expect(
         db
           .prepare("SELECT type FROM run_events WHERE run_id = ? ORDER BY id")
@@ -145,7 +145,7 @@ describe("writing workflow seams", () => {
     }
   });
 
-  test("emits exactly one thinking phase then one writing phase for a reasoning provider, with no raw reasoning anywhere", async () => {
+  test("emits exactly one thinking phase then one writing phase for a reasoning provider, streaming reasoning to the caller but never to the database", async () => {
     const dbPath = databasePath();
     const model = reasoningThenTextModel(
       ["Let me consider ", "the angle here."],
@@ -164,6 +164,8 @@ describe("writing workflow seams", () => {
     expect(events.map((event) => event.type)).toEqual([
       "write_start",
       "write_phase",
+      "reasoning_delta",
+      "reasoning_delta",
       "write_phase",
       "text_delta",
       "text_delta",
@@ -173,11 +175,14 @@ describe("writing workflow seams", () => {
       { type: "write_phase", phase: "thinking" },
       { type: "write_phase", phase: "writing" },
     ]);
-    // Reasoning text itself must never surface — not in the events, and not
-    // folded into the accumulated prose.
-    const serialized = JSON.stringify(events);
-    expect(serialized).not.toContain("Let me consider");
-    expect(serialized).not.toContain("the angle here");
+    expect(events.filter((event) => event.type === "reasoning_delta")).toEqual([
+      { type: "reasoning_delta", delta: "Let me consider " },
+      { type: "reasoning_delta", delta: "the angle here." },
+    ]);
+    // Reasoning is live output, never product: it must not be folded into the
+    // prose, nor carried on the result the caller keeps.
+    expect(result.text).not.toContain("Let me consider");
+    expect(JSON.stringify(result)).not.toContain("the angle here");
     const db = openDb(dbPath);
     try {
       expect(
@@ -230,9 +235,16 @@ describe("writing workflow seams", () => {
     expect(events.map((event) => event.type)).toEqual([
       "write_start",
       "write_phase",
+      "reasoning_delta",
       "warning",
       "write_end",
     ]);
+    // The whole completion went on thinking, so the thinking is the only
+    // account of what the run bought — the caller has to be able to see it.
+    expect(events).toContainEqual({
+      type: "reasoning_delta",
+      delta: "Planning the piece without ever producing it.",
+    });
     expect(events).toContainEqual({ type: "write_phase", phase: "thinking" });
     expect(events).not.toContainEqual({
       type: "write_phase",
@@ -246,6 +258,13 @@ describe("writing workflow seams", () => {
           .prepare("SELECT stopped_by, report_json FROM runs WHERE id = ?")
           .get(result.runId),
       ).toMatchObject({ stopped_by: "error", report_json: null });
+      const persisted = db
+        .prepare("SELECT type, payload FROM run_events WHERE run_id = ?")
+        .all(result.runId) as Array<{ type: string; payload: string }>;
+      expect(persisted.map((row) => row.type)).not.toContain("reasoning_delta");
+      expect(persisted.map((row) => row.payload).join("\n")).not.toContain(
+        "Planning the piece",
+      );
     } finally {
       db.close();
     }

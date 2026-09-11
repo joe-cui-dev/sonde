@@ -72,9 +72,11 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   store.start(runId, brief, "writing");
   const emit = (event: WriteEvent) => {
     // Deltas are live output; finishWrite persists the accumulated prose once.
-    if (event.type !== "write_end" && event.type !== "text_delta") {
-      store.event(runId, event.type, event);
-    }
+    // Reasoning is not persisted at all: it is scaffolding the model threw
+    // away, and run history is a record of what was written, not of thinking.
+    const transient =
+      event.type === "write_end" || event.type === "text_delta" || event.type === "reasoning_delta";
+    if (!transient) store.event(runId, event.type, event);
     options.onEvent?.(event);
   };
   const warnings: string[] = [];
@@ -127,12 +129,14 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     // The full stream, not textStream: a reasoning-capable provider's
     // reasoning-start/-delta parts arrive here and nowhere else, and they are
     // the only trustworthy signal that the model has started working before
-    // any prose exists. Their text is never read — only their presence.
+    // any prose exists. Their text is forwarded to the caller as live output
+    // and never accumulated into `text`: reasoning is not the piece.
     let thinkingEmitted = false;
     let writingEmitted = false;
     for await (const part of result.stream) {
       if (part.type === "reasoning-start" || (part.type === "reasoning-delta" && part.text !== "")) {
         if (!thinkingEmitted) { thinkingEmitted = true; emit({ type: "write_phase", phase: "thinking" }); }
+        if (part.type === "reasoning-delta") emit({ type: "reasoning_delta", delta: part.text });
       } else if (part.type === "text-delta" && part.text !== "") {
         if (!writingEmitted) { writingEmitted = true; emit({ type: "write_phase", phase: "writing" }); }
         text += part.text;

@@ -272,7 +272,9 @@ Writing text deltas are delivered to the live terminal preview without being
 stored in `run_events`. The accumulated prose (including partial output on
 failure) is saved once in `runs.report_json` when the writing run finishes.
 Coarse `write_phase` transitions (`thinking`, `writing`) are stored, since they
-carry no prose or reasoning content — just liveness.
+carry no prose or reasoning content — just liveness. Reasoning deltas are
+delivered the same way and stored nowhere at all: run history is a record of
+what was written, not of the scaffolding the model discarded.
 
 The trace comes from AI SDK v7's native telemetry integration interface
 (`src/telemetry/index.ts`), passed per call rather than registered globally. To
@@ -338,9 +340,18 @@ Writing · thinking · 12s · Ctrl-C to cancel
 The label only ever changes to `thinking` after the provider actually emits a
 reasoning event — Sonde never guesses at what an upstream model is doing.
 Models that emit no reasoning simply keep counting up under `waiting for
-model` until prose starts. The status line clears the moment the first prose
-token arrives, and the reasoning content itself is never printed, returned, or
-persisted — only its presence is used, as a liveness signal.
+model` until prose starts.
+
+Once the provider streams reasoning text, that text replaces the status line:
+it is printed dimmed on stderr, under a `thinking` heading, and a blank line
+separates it from the prose when the piece begins. A model that spends its
+whole completion thinking and returns nothing then leaves an account of what
+the tokens bought, rather than a bill and an empty screen.
+
+Reasoning is shown and nothing more. It is never folded into the prose, never
+returned on the `WriteResult`, never saved to the archive file, and never
+written to SQLite. Library consumers can observe it as transient
+`{ type: "reasoning_delta" }` events through `RunWriteOptions.onEvent`.
 
 The output-token ceiling includes both reasoning and prose. Sonde scales that
 ceiling with `SONDE_WRITE_REASONING_EFFORT` so the requested prose keeps its

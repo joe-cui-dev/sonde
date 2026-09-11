@@ -214,6 +214,54 @@ describe("WritingPreviewRenderer", () => {
     expect(stderr.text.endsWith("Finished prose.")).toBe(true);
   });
 
+  test("reasoning() streams the model's thinking dimmed under its own heading, retiring the status line", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.start();
+    renderer.thinking();
+    renderer.reasoning("Let me consider ");
+    renderer.reasoning("the angle here.");
+
+    // The elapsed-time placeholder has been replaced by real output, so its
+    // timer must be gone and must not repaint over the thinking.
+    expect(clock.intervalCount).toBe(0);
+    clock.advance(10_000);
+    expect(stderr.text).toContain("\x1b[2mthinking\x1b[22m\n");
+    expect(stderr.text.endsWith("\x1b[2mthe angle here.\x1b[22m")).toBe(true);
+    expect(stderr.text).not.toContain("· 10s ·");
+    // Thinking is not the piece: it has not "streamed" anything the caller
+    // can stop printing on its behalf.
+    expect(renderer.streamed).toBe(false);
+  });
+
+  test("reasoning() is silent in a pipe and silent on empty deltas", () => {
+    const piped = output(false);
+    new WritingPreviewRenderer(piped).reasoning("Must not leak into a pipe.");
+    expect(piped.text).toBe("");
+
+    const stderr = output();
+    new WritingPreviewRenderer(stderr).reasoning("");
+    expect(stderr.text).toBe("");
+  });
+
+  test("prose follows reasoning after a blank line, and later reasoning cannot interleave with it", () => {
+    const stderr = output();
+    const clock = fakeClock();
+    const renderer = new WritingPreviewRenderer(stderr, clock);
+
+    renderer.start();
+    renderer.reasoning("Weighing the opening.");
+    renderer.update("Finished ");
+    renderer.reasoning("A stray late thought.");
+    renderer.update("prose.");
+
+    expect(stderr.text).toContain("Weighing the opening.");
+    expect(stderr.text).not.toContain("A stray late thought.");
+    expect(stderr.text.endsWith("\n\nFinished prose.")).toBe(true);
+  });
+
   test("repeated start()/thinking() calls do not create multiple intervals or duplicate headers", () => {
     const stderr = output();
     const clock = fakeClock();

@@ -250,6 +250,7 @@ async function writeCommand(
       if (values.quiet) return;
       if (event.type === "write_start") preview.start();
       else if (event.type === "write_phase" && event.phase === "thinking") preview.thinking();
+      else if (event.type === "reasoning_delta") preview.reasoning(event.delta);
       else if (event.type === "text_delta") preview.update(event.delta);
     },
   });

@@ -166,9 +166,17 @@ export type WriteEvent =
    * A coarse, trustworthy phase transition for progress feedback. `thinking`
    * fires once, only after an observed provider reasoning event — never
    * assumed. `writing` fires once, immediately before the first non-empty
-   * prose delta. Raw reasoning text itself never appears in a `WriteEvent`.
+   * prose delta.
    */
   | { type: "write_phase"; phase: "thinking" | "writing" }
+  /**
+   * Raw reasoning text, exactly as the provider streamed it. Live terminal
+   * output and nothing else: never persisted, never part of the prose, never
+   * carried on the `WriteResult`. It exists so that a run which spends its
+   * whole completion thinking and returns no prose can still show what the
+   * model was doing with the tokens it charged for.
+   */
+  | { type: "reasoning_delta"; delta: string }
   | { type: "text_delta"; delta: string }
   | { type: "warning"; message: string }
   | { type: "write_end"; result: WriteResult };
