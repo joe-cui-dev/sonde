@@ -30,12 +30,19 @@ export const WRITE_STYLES: Record<BuiltInStyleId, WriteStyle> = {
     moves: [
       "Read the draft for its sentence lengths, its diction, its tense and person, " +
         "its paragraph rhythm, and how much it shows against how much it tells.",
+      // Register is only half of what a seam gives away. A draft that moves
+      // moment by moment and new prose that covers ground read as two writers
+      // even when every sentence is pitched alike, and this style is the
+      // default on the two modes that write into someone else's prose.
+      "Match the draft's granularity as well as its register: how much time passes in a paragraph, " +
+        "how much of an action gets shown. If the draft moves moment by moment, keep moving moment by moment.",
       "Write so that the seam does not show: a reader should not be able to say " +
         "where the draft stops and the new prose starts.",
       "Where the draft is uneven, follow its strongest passages rather than its weakest.",
     ],
     avoid: [
       "Any shift of register, tense, person, or formality the brief did not ask for.",
+      "Narrating at a coarser grain than the draft — covering in one sentence what the draft would have given a paragraph.",
       "Tidying, modernizing, or smoothing the draft's habits into your own.",
     ],
   },

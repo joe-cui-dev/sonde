@@ -192,14 +192,15 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     warn(`${stoppedBy === "max_wall_ms" ? "writing ran out of wall-clock budget" : "writing failed"}: ${detail}`);
   }
   const complete = stoppedBy === "complete";
-  if (complete && mode === "expand" && options.length) {
+  // Every mode that was given a count, not only expand. A count is the one
+  // requirement a run can check against its own output, and a 2,000-word brief
+  // answered with eight characters was being archived as the finished piece.
+  // Under continue the measure is the whole returned text, which is what the
+  // count means in that mode: the draft carried back plus what was added.
+  if (complete && options.length) {
     const written = countWords(text);
-    if (written < options.length * SHORTFALL_TOLERANCE) {
-      warn(
-        `the expanded passage runs to roughly ${written.toLocaleString()} words, ` +
-          `short of the ${options.length.toLocaleString()} asked for — ` +
-          "expand the saved file again to develop it further",
-      );
+    if (written < options.length * shortfallTolerance(mode)) {
+      warn(shortfall(mode, written, options.length));
     }
   }
   const result: WriteResult = {
@@ -220,6 +221,36 @@ const DEFAULT_LENGTH = 800;
  * wide enough to be real is worth putting in front of whoever ran the command.
  */
 const SHORTFALL_TOLERANCE = 0.9;
+
+/**
+ * Under new and continue the count is a soft target, and a warning that fires
+ * on a piece delivered at 1,750 of the 2,000 asked for would be noise — and a
+ * warning that is noise is a warning nobody reads. The failures worth naming
+ * there are the order-of-magnitude ones: prose that stopped in its first
+ * paragraph, or a model that answered the brief with a line about not writing
+ * it. Half the count is well below anything a finished piece lands on.
+ */
+const SOFT_TARGET_TOLERANCE = 0.5;
+
+function shortfallTolerance(mode: WriteMode): number {
+  return mode === "expand" ? SHORTFALL_TOLERANCE : SOFT_TARGET_TOLERANCE;
+}
+
+/**
+ * Reports the count and nothing more. A short return has several causes — a
+ * passage that ran out of material, a piece that stopped early, a model that
+ * declined the brief — and the count cannot tell them apart. Naming a cause
+ * here would be a guess dressed as a finding; the prose is on screen and
+ * whoever ran the command can see which it was.
+ */
+function shortfall(mode: WriteMode, written: number, length: number): string {
+  const measured =
+    `runs to roughly ${written.toLocaleString()} words, ` +
+    `short of the ${length.toLocaleString()} asked for`;
+  return mode === "expand"
+    ? `the expanded passage ${measured} — expand the saved file again to develop it further`
+    : `the piece ${measured} — check what came back before building on it`;
+}
 
 /**
  * Generous by design: a ceiling that stops a runaway, not a target. Cutting a

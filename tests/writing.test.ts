@@ -506,11 +506,87 @@ describe("writing workflow seams", () => {
       length: 3000,
     });
     const reminder =
-      "Hold the style described above — Literary — from the first sentence to the last.";
-    expect(prompt.trimEnd().endsWith(reminder)).toBe(true);
+      "Hold the style described above — Literary — from the first sentence to the last";
     expect(prompt.indexOf(reminder)).toBeGreaterThan(
       prompt.indexOf("A storm came."),
     );
+    // A name is a label, not a constraint. The failures are the part of a spec
+    // a sentence can be checked against, so they are what gets restated at the
+    // position closest to the first word written.
+    const failure = "Simile as decoration";
+    expect(prompt.lastIndexOf(failure)).toBeGreaterThan(
+      prompt.indexOf(reminder),
+    );
+    expect(prompt.trimEnd().endsWith(WRITE_STYLES.literary.avoid.at(-1)!)).toBe(
+      true,
+    );
+    // Stated in the style section and once more at the close: twice, not more.
+    expect(prompt.match(/Simile as decoration/gu)).toHaveLength(2);
+  });
+
+  test("addresses both language layers instead of detecting one", () => {
+    // Which language the prose comes out in is not knowable when the prompt is
+    // built: "写一封英文邮件" is a Chinese brief asking for an English letter,
+    // so a run is never labelled by the script its brief happens to be in.
+    for (const brief of ["写一封英文邮件询问训练时间", "Write a welcome email"]) {
+      const prompt = writePrompt({ brief, mode: "new" });
+      expect(prompt).toContain("When writing in English");
+      expect(prompt).toContain("When writing in Chinese, Japanese, or Korean");
+      expect(prompt).toContain("屈辱感涌上心头");
+    }
+  });
+
+  test("keeps a language's own constructions out of the rules that hold for all of them", () => {
+    const prompt = writePrompt({ brief: "b", mode: "new" });
+    // An em dash means nothing to a run writing Chinese, so the rule about
+    // rationing them sits under the English condition rather than above it
+    // with the habits that survive translation.
+    expect(prompt.indexOf("Em dashes and semicolons")).toBeGreaterThan(
+      prompt.indexOf("When writing in English"),
+    );
+    expect(prompt.indexOf("not merely X, but Y")).toBeGreaterThan(
+      prompt.indexOf("When writing in English"),
+    );
+    expect(prompt.indexOf("四字成语")).toBeGreaterThan(
+      prompt.indexOf("When writing in Chinese, Japanese, or Korean"),
+    );
+    // What is left above the conditions is concept only, no construction.
+    const core = prompt.slice(
+      prompt.indexOf("read as machine-made"),
+      prompt.indexOf("When writing in English"),
+    );
+    expect(core).toContain("No meta-commentary");
+    expect(core).not.toContain("Em dash");
+    expect(core).not.toContain("；");
+  });
+
+  test("holds one granularity whatever the count, and converts the count only where it means the new prose", () => {
+    const habits = "Hold one granularity from the first line to the last";
+    const scope = "Read the count above as room for one continuous stretch";
+    // How much story may pass per paragraph is not a function of the word
+    // count, so the habits go out on every run.
+    for (const options of [
+      { brief: "b", mode: "new" as const },
+      { brief: "b", mode: "new" as const, length: 2000 },
+      { brief: "b", draft: "d", mode: "continue" as const, length: 2000 },
+      { brief: "b", draft: "d", mode: "expand" as const, length: 2000 },
+    ]) {
+      expect(writePrompt(options)).toContain(habits);
+      expect(writePrompt(options)).toContain("不知过了多久");
+    }
+    // The conversion needs a figure that means the prose being asked for.
+    expect(writePrompt({ brief: "b", mode: "new", length: 2000 })).toContain(
+      scope,
+    );
+    expect(
+      writePrompt({ brief: "b", draft: "d", mode: "expand", length: 2000 }),
+    ).toContain(scope);
+    // Under continue the count covers the carried draft as well, and with no
+    // count there is no divisor at all: better silent than wrong.
+    expect(
+      writePrompt({ brief: "b", draft: "d", mode: "continue", length: 2000 }),
+    ).not.toContain(scope);
+    expect(writePrompt({ brief: "b", mode: "new" })).not.toContain(scope);
   });
 
   test("adds a style from the styles file and hands its spec to the writer", async () => {
@@ -653,6 +729,53 @@ describe("writing workflow seams", () => {
     // reported, not enforced.
     expect(result).toMatchObject({ complete: true, stoppedBy: "complete" });
     expect(result.warnings.join(" ")).toContain("short of the 2,000 asked for");
+  });
+
+  test("reports a piece that came back at a fraction of the count it was given", async () => {
+    // The failure this catches is the one that was being archived as a
+    // finished piece: a long brief answered in a line.
+    const result = await runWrite({
+      brief: "写一段两千字的场景",
+      mode: "new",
+      length: 2000,
+      config: testConfig(databasePath()),
+      model: scriptedModel([says("这个我没法写。")]),
+    });
+    expect(result).toMatchObject({ complete: true, stoppedBy: "complete" });
+    expect(result.warnings.join(" ")).toContain(
+      "short of the 2,000 asked for",
+    );
+    // The count cannot tell a refusal from a piece that stopped early, so the
+    // warning reports the measurement and names no cause.
+    expect(result.warnings.join(" ")).not.toContain("refus");
+  });
+
+  test("leaves a soft target met approximately alone", async () => {
+    // A soft target is a target. A warning that fired at 80 percent of one
+    // would be noise on every run, and noise is a warning nobody reads.
+    const result = await runWrite({
+      brief: "Write a note",
+      mode: "new",
+      length: 100,
+      config: testConfig(databasePath()),
+      model: scriptedModel([says("word ".repeat(80))]),
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  test("measures a continuation against the whole piece it returns", async () => {
+    // Under continue the count covers the carried draft as well, so the draft
+    // handed back counts toward it — the alternative would warn on every
+    // continuation that added less than half the total.
+    const result = await runWrite({
+      brief: "Carry it on",
+      draft: "起风了。他把领子竖起来。",
+      mode: "continue",
+      length: 20,
+      config: testConfig(databasePath()),
+      model: scriptedModel([says("起风了。他把领子竖起来。雨也来了。")]),
+    });
+    expect(result.warnings).toEqual([]);
   });
 
   test("leaves an expansion that meets its floor unremarked", async () => {

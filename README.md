@@ -94,8 +94,11 @@ When the writing is in Chinese, Japanese, or Korean the count is characters
 (`--length 3000` = 3000 字). Omit the flag and the brief decides the length by
 itself; where a length in the brief and `--length` disagree, the brief wins.
 
-The count is checked afterwards, not enforced: if the passage lands well under
-the floor it was given, the run still returns its prose and says so.
+The count is checked afterwards, not enforced: if the prose lands well under
+the count it was given, the run still returns it and says so. Under `expand`
+the count is a floor, so the margin is narrow; under `new` and `continue` it is
+a soft target and only an order-of-magnitude miss is worth reporting — a brief
+answered in one line, rather than a piece that came in a little short.
 
 ```
 ! the expanded passage runs to roughly 1,240 words, short of the 2,000 asked for
@@ -120,8 +123,12 @@ Leave `--style` off when continuing or expanding: `match` reads the register out
 of the draft, and any other choice would show at the seam. Leaving it off under
 `new` sends no style at all — the prompt carries no register, and the brief is
 the only thing shaping the prose. The house rules against the habits that make
-prose read as machine-made are sent either way, in whatever language the piece
-is written.
+prose read as machine-made are sent either way, in two layers: the habits
+themselves, which hold in every language, and then the constructions each habit
+takes in English and in Chinese/Japanese/Korean, each set headed by the language
+it applies to. Alongside them go the granularity rules — how much time may pass
+in a paragraph, and how much of an action gets shown rather than reported —
+which are what keep a long piece from thinning into summary as it runs.
 
 Styles of your own go in `SONDE_STYLES_FILE` (`.sonde/styles.json`, gitignored
 along with the rest of `.sonde/`) — a register is personal, and it has no
