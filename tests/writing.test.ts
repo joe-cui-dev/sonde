@@ -275,14 +275,114 @@ describe("writing workflow seams", () => {
     await runWrite({
       brief: "Write a note",
       length: 800,
-      config: testConfig(databasePath()), // medium reasoning: half the completion
+      config: testConfig(databasePath()), // medium reasoning: 16,384 tokens of headroom
       model,
     });
 
-    // The prose allowance is 800 × 2 = 1,600 tokens. Medium reasoning may use
-    // half the completion, so the total ceiling must be 3,200 to leave the
-    // original 1,600-token prose allowance intact.
-    expect(model.maxOutputTokens).toEqual([3_200]);
+    // The prose allowance is 800 × 2 = 1,600 tokens, and medium reasoning is
+    // given 16,384 tokens of its own on top, so the shared ceiling is 17,984
+    // and the prose allowance survives whatever the thinking spends.
+    expect(model.maxOutputTokens).toEqual([17_984]);
+  });
+
+  test("gives a short piece the same reasoning headroom as a long one", async () => {
+    // The regression this guards: reasoning room used to be a share of the
+    // ceiling, so a small --length bought a small ceiling and the thinking ate
+    // all of it. At --length 600 that put the whole completion at 1,500 tokens
+    // against a model that wanted roughly 620 for thinking alone, and the runs
+    // came back with no prose at all — paid for, and empty. Headroom is an
+    // overhead now, so the two ceilings differ by exactly the prose asked for.
+    const short = scriptedModel([says("Finished prose.")]);
+    const long = scriptedModel([says("Finished prose.")]);
+    const config = testConfig(databasePath());
+    await runWrite({ brief: "Write a note", length: 180, config, model: short });
+    await runWrite({ brief: "Write a note", length: 2_000, config, model: long });
+
+    expect(short.maxOutputTokens).toEqual([180 * 2 + 16_384]);
+    expect(long.maxOutputTokens).toEqual([2_000 * 2 + 16_384]);
+    expect(long.maxOutputTokens[0]! - short.maxOutputTokens[0]!).toBe(
+      (2_000 - 180) * 2,
+    );
+  });
+
+  test("retries with reasoning off when the first attempt spends the ceiling on thinking", async () => {
+    const efforts: Array<string> = [];
+    const events: WriteEvent[] = [];
+    const result = await runWrite({
+      brief: "Write a note",
+      config: testConfig(databasePath()),
+      model: (effort) => {
+        efforts.push(effort);
+        return effort === "none"
+          ? scriptedModel([says("Finished prose.")])
+          : reasoningThenTextModel(["Thinking, and never stopping."], [], 0.001, {
+              unified: "length",
+              raw: "length",
+            });
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    // The second attempt is the whole point: reasoning off, so the ceiling the
+    // first attempt burned on thinking belongs to the prose.
+    expect(efforts).toEqual(["medium", "none"]);
+    expect(result).toMatchObject({
+      text: "Finished prose.",
+      complete: true,
+      stoppedBy: "complete",
+    });
+    // Two calls were paid for, and the run says why rather than leaving a
+    // doubled bill unexplained.
+    expect(result.warnings.join(" ")).toContain(
+      "spent the whole output ceiling on reasoning and wrote nothing",
+    );
+    expect(result.usage.usd).toBeCloseTo(0.002, 6);
+    expect(events.filter((event) => event.type === "warning")).toHaveLength(1);
+  });
+
+  test("does not retry when the ceiling cut off prose that had already started", async () => {
+    // Partial prose is delivered as what it is. Rewriting from the start would
+    // throw away writing the run already paid for, and buy a second bill for
+    // prose the caller can already read.
+    const efforts: Array<string> = [];
+    const result = await runWrite({
+      brief: "Write a note",
+      config: testConfig(databasePath()),
+      model: (effort) => {
+        efforts.push(effort);
+        return reasoningThenTextModel(["Planning."], ["Useful beginning."], 0.001, {
+          unified: "length",
+          raw: "max_tokens",
+        });
+      },
+    });
+
+    expect(efforts).toEqual(["medium"]);
+    expect(result).toMatchObject({
+      text: "Useful beginning.",
+      complete: false,
+      stoppedBy: "error",
+    });
+  });
+
+  test("does not retry a no-prose run that the ceiling had nothing to do with", async () => {
+    // The model stopped of its own accord. Asking again buys the same answer.
+    const efforts: Array<string> = [];
+    const result = await runWrite({
+      brief: "Write a note",
+      config: testConfig(databasePath()),
+      model: (effort) => {
+        efforts.push(effort);
+        return reasoningThenTextModel(["Declining to write it."], []);
+      },
+    });
+
+    expect(efforts).toEqual(["medium"]);
+    expect(result.warnings.join(" ")).toContain(
+      "model returned no prose (finish reason: stop)",
+    );
   });
 
   test("delivers prose cut off by the output-token ceiling as incomplete", async () => {

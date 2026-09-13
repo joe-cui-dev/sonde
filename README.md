@@ -375,11 +375,22 @@ returned on the `WriteResult`, never saved to the archive file, and never
 written to SQLite. Library consumers can observe it as transient
 `{ type: "reasoning_delta" }` events through `RunWriteOptions.onEvent`.
 
-The output-token ceiling includes both reasoning and prose. Sonde scales that
-ceiling with `SONDE_WRITE_REASONING_EFFORT` so the requested prose keeps its
-allowance after the model's reasoning share. If a provider nevertheless ends a
-run without producing any prose, the run is marked incomplete and reports its
-finish reason instead of claiming that an empty piece completed.
+The output-token ceiling includes both reasoning and prose. Sonde sizes that
+ceiling as the prose the run asked for plus a fixed reasoning allowance chosen
+by `SONDE_WRITE_REASONING_EFFORT`, so the prose keeps its room whatever the
+thinking spends. The allowance is an overhead rather than a percentage on
+purpose: how long a model thinks is set by the task, not by the ceiling it is
+handed, and a percentage shrank with `--length` until short pieces had no room
+left to think in at all.
+
+No allowance closes the question, because how long a model thinks has a tail
+the effort level does not bound. When a run reaches the ceiling having written
+nothing at all, Sonde makes one more attempt with reasoning switched off, where
+the whole ceiling belongs to the prose, and warns that it did so — the second
+attempt is charged for. Prose that had already started when the ceiling cut it off is delivered as
+the partial piece it is, not rewritten. If prose never arrives, the run is
+marked incomplete and reports its finish reason instead of claiming that an
+empty piece completed.
 
 `--quiet`, non-TTY stderr, `--json`, `--out`, and piped use are all unaffected:
 none of them show progress text, and stdout/file/JSON output is exactly the

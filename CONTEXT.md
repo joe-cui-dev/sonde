@@ -166,3 +166,37 @@ The text a writing run had produced when it was cut short by a timeout, an error
 or an interrupt. It is delivered, marked incomplete — half a draft is useful,
 which is why this differs from a report preview, where half the evidence would
 mislead.
+
+**Output ceiling**:
+The cap on a single model turn's completion. OpenRouter spends reasoning out of
+the same allowance as the prose, so the ceiling is not a length for the piece:
+it is the room the piece needs plus the room the thinking will take. It is a
+stop and never a target — setting it high spends nothing, while a piece cut off
+mid-sentence wastes everything already paid for.
+_Avoid_: Reading it as the length of the output
+
+**Reasoning headroom**:
+The part of an [[Output ceiling]] that exists for the model to think in. An
+overhead, not a proportion: how long a provider thinks is set by the task and by
+its own reading of the effort level, not by the ceiling it was handed, and a
+ceiling too small to hold the thinking does not compress it — it truncates it.
+Thinking truncated before the first word of prose returns nothing at all, which
+is the worst outcome the writing workflow has, because the run is paid for and
+the writer has nothing to read.
+
+Budgeting it as a proportion had the shrinkage the wrong way round. A fixed
+overhead costs a short piece most, so the smallest [[Length]] was the one that
+failed: measured at 600 words, a proportional ceiling returned prose once in ten
+attempts. As an overhead the headroom is the same whatever the count, and the
+figures sit well above any measured appetite, since headroom left unspent costs
+nothing.
+
+No figure closes the question, because the appetite has a tail the effort level
+does not bound — the same brief that thinks for 400 tokens on one attempt thinks
+for 3,700 on the next. Headroom sized for a measured tail can only move that
+tail, never remove it. So a run whose first attempt reached the ceiling having
+written nothing makes a second with reasoning switched off, the one remaining
+shape of the request whose whole ceiling belongs to the writing. It is a second
+charge, so it is announced as a warning rather than made quietly, and it is
+narrow on purpose: [[Partial prose]] is delivered as what it is rather than
+thrown away and bought again.
