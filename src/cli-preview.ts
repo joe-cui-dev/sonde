@@ -20,12 +20,10 @@ export const systemClock: PreviewClock = {
 };
 
 /**
- * Presents an append-only preview on interactive stderr.
- *
- * Keeping the generated text in the terminal scrollback is intentional: a
- * provider, validation, or output-delivery failure must not retract content a
- * person has already seen. stdout remains exclusively for the final result.
- */
+* An append-only preview on interactive stderr. Text stays in the scrollback on
+* purpose: a provider, validation, or delivery failure must not retract what a
+* person has already seen. stdout stays exclusively for the final result.
+*/
 export class ReportPreviewRenderer {
   private started = false;
   private shown = "";
@@ -52,19 +50,18 @@ export class ReportPreviewRenderer {
     if (!this.enabled) return;
     this.start();
 
-    // The summary is the schema's first field, so it is the whole of the
-    // preview for as long as the writer is still on it — often most of the
-    // stream. Showing only `report` left the waiting indicator up while text
-    // was already arriving, which reads as a stalled run.
+    // The summary is the schema's first field, so it is the whole preview for as
+    // long as the writer is on it — often most of the stream. Showing only
+    // `report` left the waiting indicator up while text was arriving.
     const text = [preview.summary, preview.report]
       .filter((part): part is string => typeof part === "string")
       .join("\n\n");
     if (!text) return;
     this.stopWaiting();
 
-    // Structured partial outputs are cumulative snapshots. Write only the
-    // newly observed suffix; if parsing revises text, retain the displayed
-    // snapshot instead of trying to rewrite terminal history.
+    // Partial outputs are cumulative snapshots, so write only the new suffix.
+    // If parsing revises the text, keep what was shown rather than rewriting
+    // terminal history.
     if (text.startsWith(this.shown)) {
       this.output.write(text.slice(this.shown.length));
     } else if (text !== this.shown) {

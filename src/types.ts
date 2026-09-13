@@ -12,9 +12,8 @@ export interface SourceRef {
 }
 
 /**
- * A source the writer is allowed to cite, paired with the page text it may
- * quote from. The pairing is the point: a source with no excerpt is a source
- * the writer would have to invent quotes for.
+ * A citable source paired with the text it may quote from. The pairing is the
+ * point: a source with no excerpt is one the writer must invent quotes for.
  */
 export interface SourceEvidence {
   ref: SourceRef;
@@ -135,9 +134,8 @@ export type BuiltInStyleId =
   | "explainer"
   | "business";
 /**
- * A style is named by whoever wrote it, and a styles file may name one
- * anything, so an id is a string. Whether a given one exists is a question for
- * the style catalogue at run time, not for the compiler.
+ * A styles file may name a style anything, so an id is a string — whether one
+ * exists is a question for the catalogue at run time, not for the compiler.
  */
 export type WriteStyleId = string;
 export interface WriteResult {
@@ -146,10 +144,7 @@ export interface WriteResult {
   brief: string;
   text: string | null;
   complete: boolean;
-  /**
-   * The register the run wrote in, or null when it had none: a new run given
-   * no `--style` takes no register, and the prompt carries no style section.
-   */
+  /** The register the run wrote in, or null: a new run given no `--style` takes none. */
   style: WriteStyleId | null;
   usage: BudgetSnapshot;
   stoppedBy: StopReason;
@@ -167,18 +162,15 @@ export type WriteEvent =
       charactersHash?: string;
     }
   /**
-   * A coarse, trustworthy phase transition for progress feedback. `thinking`
-   * fires once, only after an observed provider reasoning event — never
-   * assumed. `writing` fires once, immediately before the first non-empty
-   * prose delta.
+   * A coarse, trustworthy progress transition. `thinking` fires once, only on an
+   * observed provider reasoning event — never assumed; `writing` fires once,
+   * just before the first non-empty prose delta.
    */
   | { type: "write_phase"; phase: "thinking" | "writing" }
   /**
-   * Raw reasoning text, exactly as the provider streamed it. Live terminal
-   * output and nothing else: never persisted, never part of the prose, never
-   * carried on the `WriteResult`. It exists so that a run which spends its
-   * whole completion thinking and returns no prose can still show what the
-   * model was doing with the tokens it charged for.
+   * Raw reasoning as the provider streamed it. Live terminal output and nothing
+   * else — never persisted, never part of the prose, never on the `WriteResult`.
+   * It exists so a run that returns no prose can still show what was paid for.
    */
   | { type: "reasoning_delta"; delta: string }
   | { type: "text_delta"; delta: string }

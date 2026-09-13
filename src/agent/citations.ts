@@ -2,12 +2,11 @@ import type { Citation, ResearchReport, SourceEvidence } from "../types.js";
 import type { SourceRegistry } from "./source-registry.js";
 
 /**
- * Folds away the differences that survive a round trip through markdown
- * extraction and a language model, without folding away meaning: whitespace
- * runs, typographic quotes and dashes, and markdown emphasis markers. Anything
- * beyond that is a real difference between what the page says and what the
- * report claims it says.
- */
+* Folds away what survives a round trip through markdown extraction and a
+* model — whitespace runs, typographic quotes and dashes, emphasis markers —
+* and nothing more. Anything beyond that is a real difference between what the
+* page says and what the report claims it says.
+*/
 export function normalizeQuote(text: string): string {
   return text
     .normalize("NFKC")
@@ -28,14 +27,13 @@ export function quoteAppearsIn(quote: string, sourceText: string): boolean {
 }
 
 /**
- * The mechanical half of "cite your sources". The writer is asked for a verbatim
- * quote per citation precisely so this check is possible: a citation survives
- * only if its source was actually read AND its quote is actually in that
- * source's text. The returned report contains exactly one validated citation
- * per source marker used across both visible fields. Unused and duplicate
- * entries are repairable and get dropped; a marker with no validated citation
- * makes the report invalid because its claim cannot be removed mechanically.
- */
+* The mechanical half of "cite your sources", which is why a verbatim quote is
+* asked for per citation: one survives only if its source was read AND its
+* quote is in that source's text. The result holds exactly one validated
+* citation per marker used across both visible fields. Unused and duplicate
+* entries are repairable and dropped; a marker with no validated citation
+* invalidates the report, since its claim cannot be removed mechanically.
+*/
 export function validateCitations(
   report: ResearchReport,
   registry: SourceRegistry,
@@ -81,9 +79,9 @@ export function validateCitations(
     kept.push({ ...citation, url: ref.url, title: ref.title });
   }
 
-  // Summary and report are both user-visible claims, so both belong to the
-  // citation contract. Treat repeated markers as one source reference: the
-  // schema calls for one citation entry per source id, not per occurrence.
+  // Both fields are user-visible claims, so both are under the citation
+  // contract. Repeated markers are one reference: the schema asks for one
+  // entry per source id, not per occurrence.
   const content = `${report.summary}\n${report.report}`;
   const markerIds = new Set(
     (content.match(/\[S\d+\]/g) ?? []).map((marker) => marker.slice(1, -1)),

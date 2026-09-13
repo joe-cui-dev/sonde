@@ -8,10 +8,9 @@ export interface Retrieval {
 }
 
 /**
- * Single place where provider choice is made. To put Brave in front of search
- * while keeping Tavily for extraction, return `{ searcher: brave, fetcher: tavily }`
- * here — nothing else in the codebase changes.
- */
+* The single place provider choice is made. Returning
+* `{ searcher: brave, fetcher: tavily }` here is the whole of swapping one out.
+*/
 export function createRetrieval(config: Config): Retrieval {
   switch (config.searchProvider) {
     case "tavily": {

@@ -1,13 +1,11 @@
 import { readFileSync } from "node:fs";
 
 /**
- * Styles and characters are both optional, personal files that get read,
- * parsed, and validated before anything is opened or paid for — and both
- * report a failure the same way: name the file, name the field. Writing that
- * sequence twice would only be an invitation for the two copies to drift, so
- * it lives here once and each file type supplies its own label ("styles",
- * "characters") for the error text.
- */
+* Styles and characters are both optional personal files, read and validated
+* before anything is opened or paid for, and both report a failure the same
+* way: name the file, name the field. That sequence lives here once, with each
+* caller supplying its own label for the error text.
+*/
 
 /** Null for "the file does not exist", which is not a problem. Anything else is. */
 export function readConfigFile(path: string, label: string): string | null {

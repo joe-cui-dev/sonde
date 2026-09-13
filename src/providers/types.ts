@@ -23,10 +23,10 @@ export interface FetchOutcome {
 }
 
 /**
- * Searching and reading are two different jobs. Tavily happens to do both;
- * Brave, Exa, or a self-hosted fetcher may do only one. Keep them separable so
- * swapping either side never touches the agent.
- */
+* Searching and reading are two jobs. Tavily does both; Brave, Exa, or a
+* self-hosted fetcher may do one. Separable, so swapping either never touches
+* the agent.
+*/
 export interface SearchProvider {
   readonly name: string;
   search(query: string, options?: SearchOptions): Promise<SearchOutcome>;

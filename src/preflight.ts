@@ -23,13 +23,12 @@ const MODELS_URL = "https://openrouter.ai/api/v1/models";
 const KEY_URL = "https://openrouter.ai/api/v1/key";
 
 /**
- * Everything that can be wrong before a run starts, checked for the price of
- * three GETs. The planner drives a tool loop and the writer produces a structured
- * object, so a model that supports neither fails only after money has been
- * spent on retrieval — which is exactly what this is here to prevent. Pinned
- * writer routing is checked for the same reason: OpenRouter answers a request
- * whose provider list it cannot satisfy with a 404, mid-run.
- */
+* Everything that can be wrong before a run starts, for the price of three GETs.
+* The planner drives a tool loop and the writer produces a structured object, so
+* a model supporting neither fails only after retrieval is paid for. Pinned
+* writer routing is checked for the same reason: OpenRouter answers an
+* unsatisfiable provider list with a 404, mid-run.
+*/
 export async function preflight(
   config: Config,
   options: { timeoutMs?: number } = {},
@@ -133,11 +132,10 @@ async function checkKey(config: Config, signal: AbortSignal): Promise<Check> {
 }
 
 /**
- * Confirms the pinned providers actually serve the writer model with the
- * structured-output support the report depends on. A name that no longer
- * appears — providers are added and dropped — would otherwise surface as
- * "No endpoints found" at synthesis time, with the whole run already paid for.
- */
+* Confirms the pinned providers serve the writer model with the structured-output
+* support the report depends on. Providers are added and dropped, and a stale
+* name otherwise surfaces as "No endpoints found" at synthesis time, paid for.
+*/
 async function checkWriterRouting(
   config: Config,
   signal: AbortSignal,

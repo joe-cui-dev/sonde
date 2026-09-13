@@ -216,9 +216,8 @@ async function writeCommand(
 ): Promise<number> {
   const mode = (values.mode ?? "new") as WriteMode;
   if (!(["new", "continue", "expand"] as string[]).includes(mode)) throw new Error("--mode must be new, continue, or expand.");
-  // Left undefined when the flag is absent, so the workflow can decide what the
-  // mode calls for: a continue or expand run takes its register from the draft,
-  // and a new run takes none — neither of which a value pinned here could say.
+  // Left undefined when the flag is absent, so the workflow decides what the mode
+  // calls for: continue and expand take the register from the draft, new takes none.
   const style = typeof values.style === "string" ? values.style : undefined;
   const characters = Array.isArray(values.character) ? values.character : [];
   const brief = args.join(" ").trim();
@@ -232,12 +231,11 @@ async function writeCommand(
   if (mode !== "new" && !hasDraft) throw new Error(`${mode} mode requires a draft via --in or stdin.`);
   const length = parseLength(values.length);
   const config = loadConfig(); if (values.quiet) config.logLevel = "silent";
-  // Checked here rather than against the built-in list, so that a typo is
-  // answered with the styles this machine actually has, custom ones included.
+  // Checked against this machine's catalogue, not the built-in list, so a typo is
+  // answered with the styles that actually exist here.
   if (style !== undefined) requireStyle(loadStyles(config.stylesPath), style);
-  // Same reasoning as the style check above: an unknown --character is a typo
-  // in the command, and should fail before the draft is read further or
-  // anything is spent, with the cast this machine's characters file actually has.
+  // Same reasoning: an unknown --character is a typo, and should fail before
+  // anything is read further or spent.
   if (characters.length) {
     const catalogue = loadCharacters(config.charactersPath, config.maxCharactersFileBytes);
     for (const id of characters) requireCharacter(catalogue, id);
@@ -267,9 +265,8 @@ async function writeCommand(
   const savedTo = archiveProse(result, config, log);
   const output = values.json ? JSON.stringify({ ...result, savedTo }, null, 2) + "\n" : writeText(result);
 
-  // The stream already put this prose on the terminal, character by character;
-  // printing the finished text to stdout would show the same piece twice. A
-  // file, a pipe, or --json still gets the whole thing.
+  // The stream already put this prose on the terminal, so printing it to stdout
+  // would show the piece twice. A file, a pipe, or --json still gets it whole.
   const alreadyOnScreen =
     preview.streamed && !values.json && process.stdout.isTTY === true;
 
@@ -291,11 +288,10 @@ function parseLength(value: string | string[] | boolean | undefined): number | u
 }
 
 /**
- * Keeps the finished prose on disk under the gitignored writing directory and
- * hands back the path, so the next run can be pointed straight at it. Failing
- * to save is reported and survived: the piece itself has already been paid for
- * and is on its way to stdout.
- */
+* Keeps the prose under the gitignored writing directory and hands back the
+* path, so the next run can be pointed at it. A failed save is reported and
+* survived: the piece is paid for and already on its way to stdout.
+*/
 function archiveProse(
   result: WriteResult,
   config: Config,
@@ -358,8 +354,8 @@ function renderEvent(
       log.info(c.dim(`\n── ${event.phase} ─────────────────────────────`));
       break;
     case "report_preview":
-      // The renderer owns interactive preview output. It is intentionally not
-      // passed through the logger, which may be configured for a pipe.
+      // The renderer owns interactive preview output, deliberately not routed
+      // through the logger, which may be configured for a pipe.
       break;
     case "tool_start":
       log.debug(

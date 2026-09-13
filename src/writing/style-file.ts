@@ -4,17 +4,15 @@ import { parseConfigJson, readConfigFile, renderZodIssues } from "./config-file.
 import { WRITE_STYLES, type WriteStyle } from "./styles.js";
 
 /**
- * A style is a register somebody writes in, and the six that ship with Sonde
- * are guesses about which registers that will be. A styles file is where the
- * rest go: it lives outside the repo, under the gitignored .sonde/, because a
- * register is the writer's own and has no business in anyone else's history.
- */
+* The styles shipped with Sonde are guesses at which registers people write in;
+* a styles file is where the rest go. It lives under the gitignored .sonde/,
+* because a register is the writer's own.
+*/
 const CustomStyle = z
   .object({
     name: z.string().min(1).optional(),
     summary: z.string().min(1, "must say in one line what the register is for"),
-    // Moves are what separates a specification from an adjective, so a style
-    // with none of them is the thing this whole design exists to avoid.
+    // Moves are what separate a specification from an adjective.
     moves: z
       .array(z.string().min(1))
       .min(1, "must list at least one move — a style with none is just an adjective"),
@@ -22,10 +20,7 @@ const CustomStyle = z
   })
   .strict();
 
-/**
- * Ids reach the writer through `--style`, so they have to survive a shell and
- * read as one word.
- */
+/** Ids arrive through `--style`, so they must survive a shell and read as one word. */
 const StyleFile = z.record(
   z.string().regex(/^[\w-]+$/u, "must be letters, digits, hyphens, or underscores"),
   CustomStyle,
@@ -34,15 +29,12 @@ const StyleFile = z.record(
 export type StyleCatalogue = Record<WriteStyleId, WriteStyle>;
 
 /**
- * The built-in styles with the file's laid over them: a file entry named for a
- * built-in replaces it outright rather than merging into it, so what the writer
- * receives is always exactly one style spec and the file is the whole of it.
- *
- * An absent file is the ordinary case and means the built-ins alone. A file
- * that exists and is wrong is an error: a run that quietly fell back to a
- * built-in would write the piece in a register nobody chose, and the prose is
- * paid for by then.
- */
+* The built-ins with the file laid over them: an entry named for a built-in
+* replaces it outright rather than merging, so the writer always receives
+* exactly one spec. An absent file is the ordinary case; one that exists and is
+* wrong is an error, since falling back would write the piece in a register
+* nobody chose and the prose is paid for by then.
+*/
 export function loadStyles(path: string): StyleCatalogue {
   const raw = readConfigFile(path, "styles");
   if (raw === null) return { ...WRITE_STYLES };
@@ -58,10 +50,9 @@ export function loadStyles(path: string): StyleCatalogue {
 }
 
 /**
- * Named styles are only usable if they can be found, and once a styles file can
- * add them there is no fixed list to print in `--help`. So the miss carries the
- * catalogue it was looked up in.
- */
+* Once a styles file can add styles there is no fixed list for `--help`, so the
+* miss carries the catalogue it was looked up in.
+*/
 export function requireStyle(catalogue: StyleCatalogue, id: WriteStyleId): WriteStyle {
   const style = catalogue[id];
   if (style) return style;

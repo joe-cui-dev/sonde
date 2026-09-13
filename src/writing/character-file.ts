@@ -3,21 +3,16 @@ import { z } from "zod";
 import { parseConfigJson, readConfigFile, renderZodIssues } from "./config-file.js";
 
 /**
- * A person, not a personality knob. Every field here is prose the writer will
- * see verbatim — there is no `visibility`, no `effectiveFrom`, nothing that
- * would need Sonde to reason about the story's own timeline. That is a
- * deliberate first-version boundary, not an oversight: a field this schema
- * does not know about is rejected rather than passed through, because a
- * field it silently accepted would be a field a hostile file could use to
- * smuggle something else in under a name of its choosing.
+ * A person, not a personality knob: every field is prose the writer sees
+ * verbatim, with nothing that would make Sonde reason about the story's own
+ * timeline. Strict by design — a field silently accepted is a field a hostile
+ * file could smuggle something in under.
  */
 const CharacterCardInput = z
   .object({
     name: z.string().min(1),
-    // Prompt content only in this version — matching is by --character id,
-    // never by scanning the brief or draft for a name. Kept here anyway so a
-    // card can say how a character is addressed without repeating it in the
-    // description.
+    // Prompt content only: matching is by --character id, never by scanning
+    // the brief or draft. Kept so a card can say how someone is addressed.
     aliases: z.array(z.string().min(1)).default([]),
     role: z.string().min(1).optional(),
     description: z.string().min(1),
@@ -27,11 +22,10 @@ const CharacterCardInput = z
   .strict();
 
 /**
- * Ids reach the writer through `--character`, so a Latin name has to survive
- * a shell the same way a style id does — but a cast built around a Chinese or
- * Japanese story would otherwise be forced into ids nobody would recognize.
- * `\w` is ASCII-only; this widens it to any letter or digit in any script
- * while still refusing whitespace, shell metacharacters, and punctuation.
+ * Ids arrive through `--character`, so they must survive a shell — but ASCII-only
+ * `\w` would force a Chinese or Japanese cast into unrecognizable ids. This
+ * allows any script's letters and digits, still refusing whitespace and shell
+ * metacharacters.
  */
 const CharacterFile = z.record(
   z.string().regex(/^[\p{L}\p{N}_-]+$/u, "must be letters, digits, hyphens, or underscores"),
@@ -51,17 +45,12 @@ export interface CharacterCard {
 export type CharacterCatalogue = Record<string, CharacterCard>;
 
 /**
- * Unlike styles, there is no built-in cast to fall back to — a project with
- * no characters file simply has no characters to inject, and that is the
- * ordinary case for anyone using `sonde write` outside long-form narrative.
- * A file that exists and is wrong is still an error: a run that silently
- * dropped a malformed cast would write the scene without whoever the file
- * was supposed to describe, and the prose is paid for by the time anyone
- * notices they are missing.
- *
- * `maxBytes` is checked here, against the raw file, before it is even parsed
- * — a JSON parse of an oversized file is itself work worth skipping, and the
- * failure reads the same way a torn-up JSON file would: named, not truncated.
+ * Unlike styles there is no built-in cast, so no file means no characters —
+ * the ordinary case outside long-form narrative. A file that exists and is
+ * wrong is still an error: silently dropping a malformed cast writes the scene
+ * without the people it was supposed to describe, and the prose is paid for by
+ * the time anyone notices. `maxBytes` is checked against the raw file, before
+ * parsing an oversized one is worth doing.
  */
 export function loadCharacters(path: string, maxBytes = Infinity): CharacterCatalogue {
   const raw = readConfigFile(path, "characters");
@@ -85,11 +74,8 @@ export function loadCharacters(path: string, maxBytes = Infinity): CharacterCata
 }
 
 /**
- * Named characters are only usable if they can be found, and a project's
- * cast is whatever its characters file says it is — there is no fixed list
- * to print in `--help` the way there is for the six built-in styles. So a
- * miss carries the catalogue it was looked up in, the same way `requireStyle`
- * does.
+ * A project's cast is whatever its file says, so there is no fixed list for
+ * `--help`. A miss carries the catalogue it was looked up in, as `requireStyle` does.
  */
 export function requireCharacter(catalogue: CharacterCatalogue, id: string): CharacterCard {
   const card = catalogue[id];
@@ -101,11 +87,9 @@ export function requireCharacter(catalogue: CharacterCatalogue, id: string): Cha
 }
 
 /**
- * A card injected into a run is paid for on every call it rides along with,
- * so a field with no ceiling is an unbounded cost carrying someone else's
- * name. Checked against the cards actually selected for this run, not the
- * whole file — a cast file may hold far more people than one scene needs,
- * and someone else's over-long backstory should not stop this run.
+ * An injected card is paid for on every call it rides along with, so an
+ * uncapped field is an unbounded cost. Checked against the cards this run
+ * selected, not the whole file: someone else's long backstory is not its problem.
  */
 export function assertFieldLimit(card: CharacterCard, maxChars: number): void {
   const scalar: Array<[string, string | undefined]> = [
@@ -139,11 +123,9 @@ export function assertFieldLimit(card: CharacterCard, maxChars: number): void {
 }
 
 /**
- * A short fingerprint of the characters file as it stood for this run, kept
- * on the `write_start` event so a later audit can tell whether "aria" in two
- * different runs' logs came from the same file without diffing the whole
- * thing. Sixteen hex characters of SHA-256 is plenty to tell "changed" from
- * "unchanged" — this is a fingerprint for a log line, not a content address.
+ * A fingerprint of the file as it stood for this run, kept on `write_start` so
+ * an audit can tell whether two runs' "aria" came from the same file. Sixteen
+ * hex characters is a log line, not a content address.
  */
 export function hashCharactersFile(path: string): string | undefined {
   const raw = readConfigFile(path, "characters");
@@ -152,11 +134,9 @@ export function hashCharactersFile(path: string): string | undefined {
 }
 
 /**
- * The cards as the writer will actually see them, wrapped in markers plain
- * enough to point back to from the surrounding prompt text (see
- * `CHARACTERS_ARE_REFERENCE` in prompts.ts, which is what actually tells the
- * model these markers bound data with no authority over it — this function
- * only draws the boundary, it does not explain what the boundary means).
+ * The cards as the writer sees them, wrapped in markers the prompt can point
+ * back to. This only draws the boundary; `CHARACTERS_ARE_REFERENCE` in
+ * prompts.ts is what tells the model what it means.
  */
 export function renderCharacters(cards: CharacterCard[]): string {
   return [

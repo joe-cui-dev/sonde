@@ -26,15 +26,13 @@ function present(value: string | undefined): string | undefined {
  * The upstream providers allowed to write the report.
  *
  * OpenRouter spreads a model across every provider serving it, and they do not
- * all honour a JSON schema once the response is streamed. One observed run had
- * the whole report returned as a JSON string nested inside another JSON string
- * and truncated; another answered a streaming request with an in-stream 429.
- * Either way the report is lost after the retrieval it was built from has
- * already been paid for, so routing is pinned to the providers whose streamed
- * output was actually checked against the report schema.
+ * all honour a JSON schema once the response is streamed — one observed run
+ * returned the report as a truncated JSON string nested inside another, another
+ * an in-stream 429. Either way the report is lost after retrieval was paid for,
+ * so routing is pinned to providers whose streamed output was actually checked.
  *
- * This list is a snapshot, not a ranking — re-check it when the writer model
- * changes. `SONDE_WRITER_PROVIDERS=any` hands routing back to OpenRouter.
+ * A snapshot, not a ranking — re-check it when the writer model changes.
+ * `SONDE_WRITER_PROVIDERS=any` hands routing back to OpenRouter.
  */
 const VERIFIED_WRITER_PROVIDERS = [
   "BaseTen",
@@ -64,9 +62,8 @@ const ConfigSchema = z.object({
   writeModel: z.string().default(""),
 
   /**
-   * How hard the writer is allowed to think. "default" sends nothing and lets
-   * the provider decide — which is how one run spent 22,301 reasoning tokens to
-   * produce 2,469 tokens of report.
+   * How hard the writer may think. "default" lets the provider decide — which is
+   * how one run spent 22,301 reasoning tokens on a 2,469-token report.
    */
   writerReasoningEffort: z
     .enum(["default", "none", "minimal", "low", "medium", "high", "xhigh"])
@@ -77,9 +74,8 @@ const ConfigSchema = z.object({
 
   /**
    * Empty means "no restriction". A list is sent as an ordered preference with
-   * fallbacks off: falling back past the list would put the report back in the
-   * hands of a provider that is not known to produce parseable output, which
-   * is the failure this setting exists to prevent.
+   * fallbacks off: falling back past it lands on exactly the providers not known
+   * to return parseable output, which is the failure this setting prevents.
    */
   writerProviders: z
     .string()
@@ -114,25 +110,17 @@ const ConfigSchema = z.object({
   dbPath: z.string().default(".sonde/sonde.db"),
   /** Where writing runs keep their prose. Under .sonde/, which is gitignored. */
   writingDir: z.string().default(".sonde/writing"),
-  /**
-   * Styles of the writer's own, added to the built-in ones. Under .sonde/ for
-   * the same reason the prose is: a register is personal, and this keeps it out
-   * of the repository by default. Absent is the ordinary case.
-   */
+  /** The writer's own styles, added to the built-ins. Under .sonde/, and usually absent. */
   stylesPath: z.string().default(".sonde/styles.json"),
   /**
-   * A project's cast, added by `--character <id>` to the writing prompt.
-   * Under .sonde/ for the same reason styles are: who a character is and how
-   * they talk is the writer's own material, not repository content. Absent
-   * is the ordinary case — most writing has no characters file at all.
+   * A project's cast, injected by `--character <id>`. Under .sonde/ for the same
+   * reason styles are; usually absent, as most writing has no characters at all.
    */
   charactersPath: z.string().default(".sonde/characters.json"),
   /**
    * Hard ceilings on what a characters file can put into one prompt, checked
-   * before the model is called rather than truncated silently afterward: a
-   * run that quietly dropped half a card would produce prose inconsistent
-   * with the very reference it was supposed to follow, which is worse than
-   * refusing to run at all.
+   * before the call rather than truncated silently: prose written against half a
+   * card contradicts the reference it was meant to follow.
    */
   maxCharacterCards: num(8),
   maxCharacterFieldChars: num(1200),

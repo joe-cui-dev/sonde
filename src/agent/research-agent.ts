@@ -107,9 +107,8 @@ export async function runResearch(
   store.start(runId, question);
 
   const emit: EventSink = (event: RunEvent) => {
-    // Preview updates are deliberately transient. They are useful to a live
-    // caller but have not passed schema or citation validation, so replaying
-    // them from SQLite would make them look like durable run facts.
+    // Previews are transient: useful live, but unvalidated, so replaying them
+    // from SQLite would make them look like durable run facts.
     if (event.type !== "run_end" && event.type !== "report_preview") {
       store.event(runId, event.type, event);
     }
@@ -118,10 +117,8 @@ export async function runResearch(
 
   emit({ type: "run_start", runId, question });
 
-  // `usage: { include: true }` turns on OpenRouter usage accounting — this is
+  // `usage: { include: true }` turns on OpenRouter usage accounting, which is
   // what makes the dollar budget real rather than an estimate.
-  // To pin or order upstream providers, add:
-  //   extraBody: { provider: { order: ['anthropic'], allow_fallbacks: true } }
   const openrouter =
     options.models?.planner && options.models?.writer
       ? null
@@ -148,9 +145,8 @@ export async function runResearch(
     emit({ type: "warning", message });
   };
 
-  // The limit that first turned a tool away, if any — one half of the ground
-  // truth for "this run was cut short". A refusal is a real event, so it is
-  // surfaced rather than left to be inferred from the stop reason.
+  // The limit that first turned a tool away — half the ground truth for "cut
+  // short", and a real event rather than something to infer from a stop reason.
   let retrievalCutShortBy: StopReason | null = null;
 
   const tools = createTools({
@@ -169,15 +165,11 @@ export async function runResearch(
     },
   });
 
-  // The other half. Tools are switched off for the final step so the model can
-  // never spend it on a call whose result it will not live to read; that step
-  // goes to writing findings instead.
-  //
-  // Reaching that step is itself evidence the run was truncated: the loop only
-  // continues past a step that called a tool, so a model still working one step
-  // earlier was not finished. With tools switched off it can no longer say so,
-  // which is why the clamp is recorded here rather than inferred from
-  // finishReason afterwards.
+  // The other half. Tools are off for the final step so it cannot be spent on a
+  // call whose result the model will never read; it writes findings instead.
+  // Reaching that step is itself evidence of truncation — the loop only continues
+  // past a step that called a tool — but with tools off the model can no longer
+  // say so, hence recording the clamp rather than reading finishReason.
   let forcedWrapUp = false;
 
   const agent = new ToolLoopAgent({
@@ -207,11 +199,9 @@ export async function runResearch(
   let finishedNaturally = false;
   let notes = "";
 
-  // Every step's prose is kept as it arrives, and the notes are the whole
-  // sequence — not just the last step. When the loop is cut short by a step or
-  // budget limit, `result.text` holds only the final step's text, which is
-  // typically a sentence about what the model was *about* to do. Relying on it
-  // silently threw away every finding from the steps before.
+  // The notes are every step's prose, not just the last. On a loop cut short,
+  // `result.text` holds only the final step — typically a sentence about what
+  // the model was *about* to do — and using it threw away every earlier finding.
   const stepTexts: string[] = [];
 
   emit({ type: "phase", phase: "research" });
@@ -233,8 +223,7 @@ export async function runResearch(
         });
       },
     });
-    // "stop" means the model chose to end; anything else means it was cut off
-    // mid-thought and had more it wanted to do.
+    // "stop" means the model chose to end; anything else means it was cut off.
     finishedNaturally = result.finishReason === "stop";
     const finalText = result.text?.trim() ?? "";
     if (finalText && stepTexts.at(-1) !== finalText) stepTexts.push(finalText);
@@ -251,9 +240,9 @@ export async function runResearch(
     logger.error(message);
   }
 
-  // What ended the research loop, in order of how conclusive the evidence is:
-  // a breached resource limit, then a tool we turned away, then the step limit —
-  // which only counts against a model that still had something it wanted to do.
+  // What ended the loop, most conclusive evidence first: a breached resource
+  // limit, then a refused tool, then the step limit — which only counts against
+  // a model that still had something it wanted to do.
   let stoppedBy: StopReason = loopError
     ? "error"
     : (budget.check() ??
@@ -261,17 +250,15 @@ export async function runResearch(
       (forcedWrapUp || !finishedNaturally ? "max_steps" : "complete"));
 
   // ── Synthesis ───────────────────────────────────────────────────────────────
-  // Deliberately a separate call. The writer sees the notes plus the actual text
-  // of every page that was read — the text is what makes "quote your source" a
-  // checkable instruction rather than an invitation to paraphrase a headline.
+  // A separate call, seeing the notes plus the actual text of every page read.
+  // The text is what makes "quote your source" checkable.
   const evidence = collectEvidence(registry.read(), cache);
   let report: ResearchReport | null = null;
 
-  // The writer runs inside the same wall-clock budget as everything else. It
-  // used to run outside it: the loop would gather right up to the deadline and
-  // the report would then push the run past a limit it had already reported
-  // staying inside. Retrieval now stops with time in reserve, and the call
-  // below is capped at whatever of that reserve is actually left.
+  // The writer runs inside the same wall-clock budget as everything else:
+  // retrieval stops with time in reserve, and this call is capped at what is
+  // left of it. Otherwise the report pushes the run past a limit it already
+  // reported staying inside.
   const deadlineMs = budget.remainingWallMs;
 
   if (notes.trim().length === 0 && evidence.length === 0) {
@@ -291,10 +278,9 @@ export async function runResearch(
       ? AbortSignal.any([options.signal, deadline])
       : deadline;
 
-    // A provider error (an upstream 429, say) arrives as an `error` part in
-    // the stream rather than as a rejected request, and `partialOutputStream`
-    // drops those parts. Left uncaught, the run then reports the empty text it
-    // was handed as a parse failure and names the wrong cause.
+    // A provider error (an upstream 429, say) arrives as an `error` part that
+    // `partialOutputStream` drops. Uncaught, the empty text it hands back is then
+    // reported as a parse failure, naming the wrong cause.
     let streamError: unknown;
 
     try {
@@ -344,9 +330,8 @@ export async function runResearch(
 
       let output: ResearchReport;
       try {
-        // `partialOutputStream` carries parsed, cumulative snapshots. In
-        // particular, do not derive this from text deltas: the raw text is JSON
-        // and can be temporarily invalid while a string is being completed.
+        // Parsed, cumulative snapshots. Do not derive this from text deltas: the
+        // raw JSON is temporarily invalid mid-string.
         for await (const partial of synthesis.partialOutputStream) {
           const preview = previewFromPartial(partial);
           if (preview) emit({ type: "report_preview", preview });
@@ -383,10 +368,9 @@ export async function runResearch(
     }
   }
 
-  // The record must agree with itself. The writer's own spend can push a run
-  // that stayed inside every limit over one of them, and a run that reports
-  // "complete" while its snapshot shows a breached limit is a run whose budget
-  // means nothing.
+  // The record must agree with itself: the writer's own spend can push a run
+  // that stayed inside every limit over one, and "complete" beside a breached
+  // snapshot is a budget that means nothing.
   if (stoppedBy === "complete") stoppedBy = budget.check() ?? "complete";
 
   for (const source of registry.all()) store.saveSource(runId, source);
@@ -411,15 +395,13 @@ export async function runResearch(
 }
 
 /**
- * Explains a failed synthesis in terms of what the writer actually returned.
- *
- * `NoObjectGeneratedError` says only that the text would not parse, which is
- * the same sentence whether the provider streamed nothing, streamed prose, or
- * streamed JSON it had wrapped in another JSON string. OpenRouter routes each
- * request to a different upstream and they do not all honour the schema the
- * same way when streaming, so the returned text is the evidence that says
- * which of those happened.
- */
+* Explains a failed synthesis in terms of what the writer actually returned.
+*
+* `NoObjectGeneratedError` says only that the text would not parse — the same
+* sentence whether the provider streamed nothing, prose, or JSON wrapped in
+* another JSON string. Since OpenRouter's upstreams do not all honour the
+* schema alike, the returned text is the evidence of which happened.
+*/
 function describeSynthesisFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const text = (error as { text?: unknown }).text;
@@ -446,22 +428,19 @@ function previewFromPartial(partial: unknown): ReportPreview | null {
 }
 
 /**
- * Provider settings for the writer.
- *
- * The writer transcribes and quote-checks; it does not deliberate. Left to the
- * provider's default, one run spent 22,301 reasoning tokens to produce 2,469
- * tokens of report — eight minutes and five times the cost of an identical
- * result. Runs that happened to emit no reasoning at all still matched every
- * quote exactly, so a cap here has no observed downside. Set
- * SONDE_WRITER_REASONING_EFFORT=default to hand the decision back.
- *
- * Routing is pinned for the same kind of reason: the writer is the one call
- * whose output has to parse, and OpenRouter's upstreams do not all honour the
- * report schema when streaming. `allow_fallbacks` is off deliberately — a
- * fallback past the list is a fallback to a provider that may return text no
- * amount of downstream handling can turn back into a report. See
- * SONDE_WRITER_PROVIDERS.
- */
+* Provider settings for the writer.
+*
+* The writer transcribes and quote-checks; it does not deliberate. Left to the
+* provider's default, one run spent 22,301 reasoning tokens on a 2,469-token
+* report — eight minutes and five times the cost of an identical result — while
+* runs that emitted no reasoning still matched every quote. Set
+* SONDE_WRITER_REASONING_EFFORT=default to hand the decision back.
+*
+* Routing is pinned for a related reason: the writer is the one call whose
+* output has to parse, and OpenRouter's upstreams do not all honour the schema
+* when streaming. `allow_fallbacks` is off because a fallback past the list is
+* a fallback to text no downstream handling can turn back into a report.
+*/
 export function writerModelSettings(config: Config): {
   usage: { include: true };
   reasoning?: { effort: Exclude<Config["writerReasoningEffort"], "default"> };
@@ -489,13 +468,11 @@ const MAX_EVIDENCE_CHARS_PER_SOURCE = 6_000;
 const MAX_EVIDENCE_CHARS_TOTAL = 40_000;
 
 /**
- * Pairs every source that was read with the page text behind it, sharing the
- * character budget out fairly so one long page cannot crowd the others out.
- *
- * A source whose text we cannot produce is dropped rather than listed: offering
- * the writer an id it has no text for is exactly how unquotable citations get
- * written in the first place.
- */
+* Pairs every source read with the page text behind it, sharing the character
+* budget fairly so one long page cannot crowd the others out. A source with no
+* text is dropped: an id with nothing behind it is how unquotable citations
+* get written.
+*/
 function collectEvidence(
   sources: SourceRef[],
   cache: PageCache,

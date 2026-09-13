@@ -11,10 +11,10 @@ export class BudgetExceededError extends Error {
 }
 
 /**
- * Tracks the four things a research run can run out of: steps, tokens, dollars
- * and search credits — plus wall time. Nothing here throws by default; callers
- * decide whether a hit limit means "stop now" or "degrade gracefully".
- */
+* Tracks what a run can exhaust: steps, tokens, dollars, search credits, wall
+* time. Nothing throws by default — callers decide whether a hit limit means
+* "stop now" or "degrade gracefully".
+*/
 export class BudgetTracker {
   readonly limits: BudgetLimits;
   private readonly startedAt = Date.now();
@@ -57,14 +57,12 @@ export class BudgetTracker {
   }
 
   /**
-   * The first *resource* limit that has been reached, or null.
-   *
-   * Steps are deliberately not one of them. The loop's own `stepCountIs` owns
-   * that boundary, and a model that wraps up on its last allowed step has not
-   * overspent anything — reporting it here made a finished run look like a
-   * breached one. Whether the step limit truncated a run is a question about
-   * the loop, answered where the loop ends.
-   */
+  * The first *resource* limit reached, or null.
+  *
+  * Steps are deliberately excluded: the loop's own `stepCountIs` owns that
+  * boundary, and a model that wraps up on its last allowed step has overspent
+  * nothing. Whether the step limit truncated a run is answered where the loop ends.
+  */
   check(): StopReason | null {
     if (this.usdSpent >= this.limits.maxUsd) return "max_usd";
     if (this.inputTokens + this.outputTokens >= this.limits.maxTokens)
@@ -85,21 +83,19 @@ export class BudgetTracker {
   }
 
   /**
-   * Which limit is blocking retrieval, named as the reason that would end the
-   * run, or null while retrieval is still allowed.
-   *
-   * `"max_steps"` is the subtle one. Tools run *during* a step, but the model
-   * only sees what they returned on the *next* step. Fetching on the last step
-   * means paying for pages nobody ever reads — and worse, those pages get
-   * marked citable, so the writer is handed sources it has no text for. We stop
-   * retrieval one step early and let the model spend that step writing notes.
-   *
-   * Everything else is the reserve: retrieval stops with `reservePct` of each
-   * resource still unspent, so the writer is never left without the budget to
-   * produce a report. Wall time is in that list — leaving it out was how a run
-   * could gather until the very last second and then overrun its own deadline
-   * while synthesising.
-   */
+  * Which limit is blocking retrieval, named as the reason that would end the
+  * run, or null while retrieval is still allowed.
+  *
+  * `"max_steps"` is the subtle one: tools run *during* a step but are only seen
+  * on the *next*, so fetching on the last step pays for pages nobody reads and
+  * marks them citable with no text behind them. Retrieval stops a step early
+  * and that step goes to notes.
+  *
+  * Everything else is the reserve: retrieval stops with `reservePct` of each
+  * resource unspent, so the writer always has budget left to produce a report.
+  * Wall time is in that list — leaving it out let a run gather to the last
+  * second and then overrun its own deadline while synthesising.
+  */
   retrievalBlockedBy(reservePct = 0.15): StopReason | null {
     const spent = this.check();
     if (spent) return spent;

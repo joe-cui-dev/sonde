@@ -12,10 +12,9 @@ const MAX_CHARS_PER_PAGE = 8_000;
 const MAX_CHARS_PER_CALL = 24_000;
 
 /**
- * Split the per-call character budget across pages so a late page is never
- * starved by an early one: everyone gets an equal share first, then whatever
- * nobody needed is handed back to the pages that are still truncated.
- */
+* Splits the per-call character budget so a late page is never starved by an
+* early one: an equal share each, then the leftovers go to the still-truncated.
+*/
 export function allocateChars(
   lengths: number[],
   total: number = MAX_CHARS_PER_CALL,
@@ -58,10 +57,9 @@ const RESOURCE_LABEL: Record<string, string> = {
 };
 
 /**
- * What the model is told when a tool declines to run. The step limit needs
- * different wording from the rest: there is budget left, just no step in which
- * the answer could be read.
- */
+* What the model is told when a tool declines. The step limit needs its own
+* wording: budget is left, just no step in which the answer could be read.
+*/
 function refusal(reason: StopReason) {
   const conclude =
     "Do not call any more tools. Write your findings now from the evidence you " +
@@ -137,9 +135,8 @@ export function createTools(ctx: ToolContext) {
           url: ref.url,
           published: ref.publishedDate ?? null,
           snippet: hits[i]?.snippet ?? "",
-          // Null until the page has been read. A result with no id is a result
-          // you have no way to cite, which is the whole point: a snippet cannot
-          // be laundered into a claim.
+          // Null until the page is read: no id means no way to cite it, so a
+          // snippet cannot be laundered into a claim.
           citeAs: ctx.registry.citableId(ref),
         }));
 
@@ -184,9 +181,8 @@ export function createTools(ctx: ToolContext) {
         if (urls.length === 0)
           return { error: "No valid http(s) URLs supplied." };
 
-        // Decide the budget question before announcing anything. A refusal
-        // that has already emitted tool_start leaves a call opened and never
-        // closed in the event stream, which reads as a hang.
+        // Decide the budget question before announcing anything: a refusal after
+        // tool_start leaves a call opened and never closed, which reads as a hang.
         const { hits: cached, misses } = ctx.cache.partition(urls);
         const blocked =
           misses.length > 0 ? ctx.budget.retrievalBlockedBy() : null;
@@ -236,8 +232,8 @@ export function createTools(ctx: ToolContext) {
           });
           const text = page.text.slice(0, allowances[index] ?? 0);
 
-          // `read: true` is what makes a source citable during synthesis, so a
-          // page whose text never reached the model must not be given it.
+          // `read: true` is what makes a source citable, so a page whose text
+          // never reached the model must not get it.
           if (text.length === 0) {
             failures.push({
               url: page.url,

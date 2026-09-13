@@ -2,10 +2,9 @@ import type { SearchHit, SourceId, SourceRef } from "../types.js";
 import { canonicalizeUrl } from "../util/url.js";
 
 /**
- * Assigns every URL the run touches a stable short handle (S1, S2, …) so the
- * model can cite by id instead of pasting URLs, and so every citation in the
- * final report can be checked against something we actually retrieved.
- */
+* Gives every URL the run touches a stable short handle (S1, S2, …), so the
+* model cites by id and every citation can be checked against what was retrieved.
+*/
 export class SourceRegistry {
   private readonly byUrl = new Map<string, SourceRef>();
   private counter = 0;
@@ -47,13 +46,12 @@ export class SourceRegistry {
   }
 
   /**
-   * The handle a source may be cited by, or null while it has not been read.
-   *
-   * Ids are assigned on discovery so the run record can say what was found as
-   * well as what was used — but only a source with text behind it is given one
-   * to the model. Handing an id to a search hit is what let a snippet be cited
-   * as though it were evidence.
-   */
+  * The handle a source may be cited by, or null until it has been read.
+  *
+  * Ids are assigned on discovery so the record can say what was found as well as
+  * what was used, but only a source with text behind it gets one handed to the
+  * model: an id on a search hit is how a snippet gets cited as evidence.
+  */
   citableId(ref: SourceRef): SourceId | null {
     return ref.read ? ref.id : null;
   }

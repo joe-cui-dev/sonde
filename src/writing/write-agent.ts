@@ -37,12 +37,10 @@ export interface RunWriteOptions {
   signal?: AbortSignal;
   runId?: string;
   /**
-   * Stands in for the OpenRouter model Sonde would build, which is the seam
-   * tests reach through. A function is called once per attempt with the
-   * reasoning effort that attempt asks for — the only way to observe the
-   * reasoning retry from outside, since effort is fixed when the model is
-   * constructed. A bare model is used for every attempt exactly as given,
-   * because nothing outside Sonde can reconfigure one.
+   * Test seam for the OpenRouter model. A function is called once per attempt
+   * with that attempt's reasoning effort — the only way to observe the
+   * reasoning retry, since effort is fixed when a model is constructed. A bare
+   * model is reused as given.
    */
   model?:
     | LanguageModel
@@ -54,18 +52,14 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   const brief = options.brief.trim();
   const mode = options.mode ?? "new";
   const style = options.style ?? defaultStyle(mode);
-  // Resolved before anything is opened, spent, or recorded: a style that does
-  // not exist is a typo in the command, and the run should die on it rather
-  // than on the far side of a paid model call. No style at all is not a typo —
-  // it is a new run that was given none and wants none, so nothing is loaded
-  // and the prompt goes out without a register.
+  // Resolved before anything is opened, spent, or recorded: an unknown style is
+  // a typo in the command and should fail here, not past a paid model call. No
+  // style at all is not a typo — the prompt then goes out without a register.
   const spec = style === undefined
     ? undefined
     : requireStyle(loadStyles(config.stylesPath), style);
-  // Characters are resolved at the same point and for the same reason: an
-  // unknown id, or a run that asks for more people or bigger fields than the
-  // hard limits allow, is a mistake in the command that should fail here,
-  // not after the model has already been paid for a prompt built around it.
+  // Characters, same point and same reason: an unknown id or an over-limit cast
+  // is a mistake in the command, not something to discover after paying.
   const characterIds = options.characters ?? [];
   if (characterIds.length > config.maxCharacterCards) {
     throw new Error(
@@ -76,9 +70,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   const catalogue = loadCharacters(config.charactersPath, config.maxCharactersFileBytes);
   const characters = characterIds.map((id) => requireCharacter(catalogue, id));
   for (const card of characters) assertFieldLimit(card, config.maxCharacterFieldChars);
-  // Build this once, expose that same immutable string to diagnostics, and
-  // then hand it to streamText. Keeping one value avoids a prompt preview
-  // drifting away from the request it claims to show.
+  // Built once so the preview cannot drift from the request it claims to show.
   const prompt = writePrompt({
     brief, draft: options.draft, mode, style: spec, characters,
     language: options.language, length: options.length,
@@ -95,9 +87,8 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   const store = new RunStore(db);
   store.start(runId, brief, "writing");
   const emit = (event: WriteEvent) => {
-    // Deltas are live output; finishWrite persists the accumulated prose once.
-    // Reasoning is not persisted at all: it is scaffolding the model threw
-    // away, and run history is a record of what was written, not of thinking.
+    // Deltas are live output; finishWrite persists the prose once. Reasoning is
+    // never persisted — run history records what was written, not the thinking.
     const transient =
       event.type === "write_end" || event.type === "text_delta" || event.type === "reasoning_delta";
     if (!transient) store.event(runId, event.type, event);
@@ -113,9 +104,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     runId,
     brief,
     mode,
-    // Only present when characters were actually injected, so the ordinary
-    // run — no characters file, or none named — leaves no trace of a feature
-    // it never touched.
+    // Only present when characters were actually injected.
     ...(characters.length
       ? { characters: characters.map((card) => card.name), charactersHash: hashCharactersFile(config.charactersPath) }
       : {}),
@@ -126,9 +115,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     headers: { "HTTP-Referer": config.appUrl, "X-Title": config.appTitle },
   });
   const effort = config.writeReasoningEffort;
-  // Effort is fixed when the model is constructed, so an attempt that wants a
-  // different one needs a different model — which is why this is a function
-  // and not the single value it used to be.
+  // Effort is fixed at construction, so a different effort needs a new model.
   const modelFor = (attemptEffort: Config["writeReasoningEffort"]): LanguageModel =>
     typeof supplied === "function"
       ? supplied(attemptEffort)
@@ -136,19 +123,16 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
           usage: { include: true },
           ...(attemptEffort === "default" ? {} : { reasoning: { effort: attemptEffort } }),
         });
-  // One ceiling for the whole run rather than one per attempt. The retry below
-  // exists to give the piece the room the first attempt spent on thinking, and
-  // a ceiling recomputed for a reasoning-free attempt would take that room
-  // straight back out again.
+  // One ceiling for the whole run: recomputing it for the reasoning-free retry
+  // would take back the room that retry exists to give the prose.
   const maxOutputTokens = outputTokenLimit(options.length, mode, options.draft, effort);
   const timeout = AbortSignal.timeout(limits.maxWallMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let text = "";
   let stoppedBy: StopReason = "complete";
   /**
-   * One model turn: streams it, bills it, and reports how the provider says it
-   * ended. Prose accumulates into the run's `text` rather than into a return
-   * value, so whatever was streamed before a throw is still there to deliver.
+   * One model turn: streams it, bills it, reports how it ended. Prose
+   * accumulates into `text`, so a throw still leaves what was streamed.
    */
   const attempt = async (attemptEffort: Config["writeReasoningEffort"]) => {
     let streamError: unknown;
@@ -159,11 +143,9 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
       abortSignal: signal,
       onError: ({ error }) => { streamError ??= error; },
     });
-    // The full stream, not textStream: a reasoning-capable provider's
-    // reasoning-start/-delta parts arrive here and nowhere else, and they are
-    // the only trustworthy signal that the model has started working before
-    // any prose exists. Their text is forwarded to the caller as live output
-    // and never accumulated into `text`: reasoning is not the piece.
+    // The full stream, not textStream: reasoning parts arrive only here, and
+    // they are the only trustworthy signal of work before any prose exists.
+    // Their text is forwarded live and never accumulated into `text`.
     let thinkingEmitted = false;
     let writingEmitted = false;
     for await (const part of result.stream) {
@@ -195,23 +177,12 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   };
   try {
     let outcome = await attempt(effort);
-    // No prose at all, and the ceiling is why: every token of the completion
-    // went on thinking that never reached a first word. The ceiling already
-    // carries several times the thinking this model was measured wanting (see
-    // REASONING_HEADROOM_TOKENS), so the run that overruns it has drawn from
-    // the far tail of an appetite the effort level does not actually bound —
-    // and raising the headroom cannot close a tail, it can only move it. What
-    // does close it is taking reasoning out of the request, which is the one
-    // remaining shape of this call whose whole ceiling belongs to the writer.
-    // It is worth a second call: the run has already been paid for and has
-    // nothing to show for it, and this is the difference between charging for
-    // a draft and charging for silence.
-    //
-    // Deliberately narrow. Partial prose does not qualify — that is a piece
-    // that was cut off, and it is delivered as what it is rather than thrown
-    // away and rewritten from the start. A finish reason other than `length`
-    // does not qualify either: the model stopped for a reason of its own and
-    // repeating the request would only buy the same answer again.
+    // No prose at all, and the ceiling is why: the whole completion went on
+    // thinking. Raising the headroom cannot close that tail, only move it;
+    // taking reasoning out of the request can, and the run has already been
+    // paid for with nothing to show. Deliberately narrow: partial prose is
+    // delivered as what it is, and a non-`length` finish means the model
+    // stopped for its own reason, which a repeat would only buy again.
     const spentCeilingOnThinking =
       text.trim() === "" && outcome.finishReason === "length";
     if (spentCeilingOnThinking && effort !== "none" && !budget.exhausted) {
@@ -221,10 +192,8 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
       );
       outcome = await attempt("none");
     }
-    // A provider may spend the whole completion on reasoning and then end the
-    // stream cleanly. Transport success is not a completed writing run: prose
-    // is the product, and claiming an empty result completed leaves the caller
-    // with neither a draft nor an explanation of what happened.
+    // A provider may burn the whole completion on reasoning and still end the
+    // stream cleanly. Transport success is not a completed writing run.
     if (text.trim() === "") {
       text = "";
       throw new Error(
@@ -233,8 +202,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
           : `model returned no prose (finish reason: ${outcome.detail})`,
       );
     }
-    // The text already streamed is still useful, but a length finish means it
-    // is partial prose, not the finished piece the run promised to deliver.
+    // What streamed is still useful, but a length finish means partial prose.
     if (outcome.finishReason === "length") {
       throw new Error(
         `model reached the output token limit (finish reason: ${outcome.detail})`,
@@ -246,11 +214,9 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
     warn(`${stoppedBy === "max_wall_ms" ? "writing ran out of wall-clock budget" : "writing failed"}: ${detail}`);
   }
   const complete = stoppedBy === "complete";
-  // Every mode that was given a count, not only expand. A count is the one
-  // requirement a run can check against its own output, and a 2,000-word brief
-  // answered with eight characters was being archived as the finished piece.
-  // Under continue the measure is the whole returned text, which is what the
-  // count means in that mode: the draft carried back plus what was added.
+  // Every mode given a count, not only expand: a count is the one requirement a
+  // run can check against its own output. Under continue the measure is the
+  // whole returned text — the draft carried back plus what was added.
   if (complete && options.length) {
     const written = countWords(text);
     if (written < options.length * shortfallTolerance(mode)) {
@@ -269,20 +235,13 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
 
 const DEFAULT_LENGTH = 800;
 
-/**
- * A floor is a floor, but the measure of what was written is an estimate, and a
- * run that lands a few percent under it has done what was asked. Only a miss
- * wide enough to be real is worth putting in front of whoever ran the command.
- */
+/** The count is an estimate, so only a miss wide enough to be real is worth reporting. */
 const SHORTFALL_TOLERANCE = 0.9;
 
 /**
- * Under new and continue the count is a soft target, and a warning that fires
- * on a piece delivered at 1,750 of the 2,000 asked for would be noise — and a
- * warning that is noise is a warning nobody reads. The failures worth naming
- * there are the order-of-magnitude ones: prose that stopped in its first
- * paragraph, or a model that answered the brief with a line about not writing
- * it. Half the count is well below anything a finished piece lands on.
+ * Under new and continue the count is a soft target, so only order-of-magnitude
+ * misses are worth naming — a piece that stopped in its first paragraph, or a
+ * model that declined the brief. A warning that is noise is one nobody reads.
  */
 const SOFT_TARGET_TOLERANCE = 0.5;
 
@@ -291,11 +250,8 @@ function shortfallTolerance(mode: WriteMode): number {
 }
 
 /**
- * Reports the count and nothing more. A short return has several causes — a
- * passage that ran out of material, a piece that stopped early, a model that
- * declined the brief — and the count cannot tell them apart. Naming a cause
- * here would be a guess dressed as a finding; the prose is on screen and
- * whoever ran the command can see which it was.
+ * Reports the count and nothing more. A short return has several causes the
+ * count cannot tell apart, and naming one would be a guess dressed as a finding.
  */
 function shortfall(mode: WriteMode, written: number, length: number): string {
   const measured =
@@ -307,10 +263,8 @@ function shortfall(mode: WriteMode, written: number, length: number): string {
 }
 
 /**
- * Generous by design: a ceiling that stops a runaway, not a target. Cutting a
- * piece off mid-sentence wastes everything already paid for, so the estimate
- * leans high — two tokens per requested word, which covers CJK prose where a
- * "word" is a character that costs roughly a token of its own.
+ * A ceiling that stops a runaway, not a target, so the estimate leans high:
+ * two tokens per word covers CJK, where a "word" is a character costing ~a token.
  */
 const TOKENS_PER_WORD = 2;
 
@@ -318,38 +272,20 @@ const TOKENS_PER_WORD = 2;
  * Tokens of thinking to leave room for above the prose allowance, at each
  * normalized effort.
  *
- * This used to be a share: the prose allowance divided by the fraction of a
- * completion the effort level was thought to leave for prose, on the model
- * that OpenRouter's levels hand thinking a percentage of whatever ceiling they
- * are given. Measured against deepseek/deepseek-v4.1-flash at `low`, that
- * model of the world is wrong in both of its parts.
+ * A flat overhead, not a share of the ceiling. Measured against
+ * deepseek/deepseek-v4.1-flash at `low`, thinking spent the whole of a 2,000
+ * and 4,000 ceiling cut off mid-thought, but only 422–3,515 tokens when given
+ * 6,000 or more: past ~5k the ceiling stops sizing the thinking and what is
+ * left is the model's own appetite. Deriving it from the prose allowance also
+ * shrank the reservation as the request shrank, which is backwards — at
+ * `--length 600` that put the whole ceiling at 1,500 tokens and six of ten
+ * paid attempts returned no prose at all.
  *
- * It is not a percentage. Sweeping the ceiling against one brief at `low`, the
- * thinking took 2,000 tokens of a 2,000 ceiling and 3,652 of a 4,000, both cut
- * off mid-thought; given 6,000 it took 1,290 on one attempt and 3,515 on
- * another, given 10,000 it took 2,253 and then 483, and given 32,000 it took
- * 422. Past roughly five thousand tokens the ceiling stops predicting anything
- * and what is left is the model's own appetite, which on this one brief ran
- * anywhere from 400 tokens to 3,700. Below that the ceiling does not size the
- * thinking, it only cuts it off — and thinking cut off before the first word
- * of prose returns nothing at all.
- *
- * Dividing also made the reservation shrink with the request, which is the
- * wrong way round, because a fixed overhead costs a short piece most. At
- * `--length 600` the share put the entire ceiling at 1,500 tokens: ten
- * attempts produced one usable piece, and six of the ten returned no prose
- * whatsoever. Every one of them was paid for.
- *
- * So thinking is budgeted as the thing it is — an overhead added on top of the
- * prose allowance, the same tokens for a 200-word piece as for a 2,000-word
- * one — and the figures sit well clear of that measured appetite rather than
- * near it. Headroom that goes unspent costs nothing, because a ceiling is only
- * ever a stop and never a target, while headroom that runs out costs the whole
- * run. They stop short of the tens of thousands for one reason only: a ceiling
- * above a model's own completion limit is a request some providers refuse
- * outright, and an unusable run is a worse outcome than a rare truncated one.
- * `default` is provider-owned and unknowable; it reserves what Sonde's own
- * writing default (medium) reserves, without pretending to know.
+ * So the figures sit well clear of that appetite. Unspent headroom costs
+ * nothing; headroom that runs out costs the run. They stop short of the tens
+ * of thousands because a ceiling above a model's own completion limit is a
+ * request some providers refuse outright. `default` is provider-owned and
+ * unknowable, so it reserves what Sonde's own writing default (medium) does.
  */
 const REASONING_HEADROOM_TOKENS: Record<
   Config["writeReasoningEffort"],
@@ -379,10 +315,8 @@ function outputTokenLimit(
   const carried = mode === "continue" ? estimateTokens(draft ?? "") : 0;
   const proseTokens = Math.max(128, Math.ceil(target * TOKENS_PER_WORD + carried));
 
-  // OpenRouter's completion ceiling is shared: reasoning is spent out of the
-  // same allowance as the prose. So the ceiling is the room the piece needs
-  // plus the room the thinking will take, and the prose allowance survives
-  // whatever the thinking does with its own.
+  // OpenRouter's completion ceiling is shared with reasoning, so the prose
+  // allowance only survives if the thinking is given room of its own on top.
   return proseTokens + REASONING_HEADROOM_TOKENS[reasoningEffort];
 }
 

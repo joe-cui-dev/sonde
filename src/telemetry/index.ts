@@ -2,14 +2,11 @@ import type { Telemetry } from "ai";
 import type { RunStore } from "../store/runs.js";
 
 /**
- * AI SDK v7 accepts telemetry integrations per call, so we hand each run its own
- * instance instead of registering a process-wide one and routing by id. Every
- * model call and tool execution lands in the run_events table, which makes a run
- * reconstructable after the fact.
- *
- * Adding Langfuse or Braintrust later means putting their integration next to
- * this one in the `integrations` array — nothing else changes.
- */
+* AI SDK v7 takes telemetry integrations per call, so each run gets its own
+* instance rather than a process-wide one routed by id. Every model call and
+* tool execution lands in run_events, which is what makes a run reconstructable.
+* Langfuse or Braintrust would go beside this one in `integrations`.
+*/
 export function createRunTelemetry(deps: {
   store: RunStore;
   runId: string;

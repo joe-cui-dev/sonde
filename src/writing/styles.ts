@@ -1,13 +1,11 @@
 import type { BuiltInStyleId, WriteMode, WriteStyleId } from "../types.js";
 
 /**
- * A style is a specification, not an adjective. "Vivid" and "concise" reach the
- * writer as whatever those words average out to across everything ever written,
- * which is the most worn version of each — the stock simile, the clipped
- * sentence with nothing in it. What does constrain a sentence is a move the
- * writer can perform and a failure it can be told to steer around, so every
- * style names both.
- */
+* A specification, not an adjective. "Vivid" reaches the writer as whatever that
+* word averages out to — the stock simile, the worn phrase. What constrains a
+* sentence is a move it can perform and a failure it can steer around, so every
+* style names both.
+*/
 export interface WriteStyle {
   id: WriteStyleId;
   name: string;
@@ -20,8 +18,8 @@ export interface WriteStyle {
 }
 
 export const WRITE_STYLES: Record<BuiltInStyleId, WriteStyle> = {
-  // The one style with no register of its own. It is the right default for a
-  // run that writes into prose someone else already wrote.
+  // The one style with no register of its own — the right default for writing
+  // into prose someone else already wrote.
   match: {
     id: "match",
     name: "Match the draft",
@@ -30,10 +28,9 @@ export const WRITE_STYLES: Record<BuiltInStyleId, WriteStyle> = {
     moves: [
       "Read the draft for its sentence lengths, its diction, its tense and person, " +
         "its paragraph rhythm, and how much it shows against how much it tells.",
-      // Register is only half of what a seam gives away. A draft that moves
-      // moment by moment and new prose that covers ground read as two writers
-      // even when every sentence is pitched alike, and this style is the
-      // default on the two modes that write into someone else's prose.
+      // Register is only half of what a seam gives away: matched sentences still
+      // read as two writers if one moves moment by moment and the other covers
+      // ground.
       "Match the draft's granularity as well as its register: how much time passes in a paragraph, " +
         "how much of an action gets shown. If the draft moves moment by moment, keep moving moment by moment.",
       "Write so that the seam does not show: a reader should not be able to say " +
@@ -156,10 +153,9 @@ export const WRITE_STYLES: Record<BuiltInStyleId, WriteStyle> = {
 };
 
 /**
- * The style as it reaches the writer: a heading, the moves, the failures. A
- * style from a styles file may name no failures at all, and a bare "Avoid:"
- * with nothing under it would read as an instruction that got lost.
- */
+* The style as the writer sees it. A styles file may name no failures at all,
+* and a bare "Avoid:" with nothing under it reads as an instruction that got lost.
+*/
 export function renderStyle(style: WriteStyle): string {
   return [
     `Style — ${style.name}: ${style.summary}`,
@@ -171,16 +167,12 @@ export function renderStyle(style: WriteStyle): string {
 }
 
 /**
- * A continue or expand run writes into prose that already has a register, and
- * one chosen for it would show at exactly the seam it is meant to hide, so
- * those two modes default to taking the register from the draft.
- *
- * New writing has no draft to take a register from, and rather than pick one
- * on the writer's behalf it gets none: an unasked-for register is a constraint
- * nobody wrote into the brief, and a brief that wants one can say so in its own
- * words. With no style the prompt carries no style section at all — see
- * `writePrompt`.
- */
+* Continue and expand write into prose that already has a register, and one
+* chosen for them would show at exactly the seam it is meant to hide — so they
+* take it from the draft. New writing gets none rather than an unasked-for
+* constraint the brief never named; the prompt then carries no style section
+* at all (see `writePrompt`).
+*/
 export function defaultStyle(mode: WriteMode): BuiltInStyleId | undefined {
   return mode === "new" ? undefined : "match";
 }
