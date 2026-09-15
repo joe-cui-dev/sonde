@@ -122,13 +122,11 @@ and the failure it falls into:
 Leave `--style` off when continuing or expanding: `match` reads the register out
 of the draft, and any other choice would show at the seam. Leaving it off under
 `new` sends no style at all — the prompt carries no register, and the brief is
-the only thing shaping the prose. The house rules against the habits that make
-prose read as machine-made are sent either way, in two layers: the habits
-themselves, which hold in every language, and then the constructions each habit
-takes in English and in Chinese/Japanese/Korean, each set headed by the language
-it applies to. Alongside them go the granularity rules — how much time may pass
-in a paragraph, and how much of an action gets shown rather than reported —
-which are what keep a long piece from thinning into summary as it runs.
+the only thing setting its register. A small language-neutral baseline still
+asks for clear, specific prose without process commentary or empty wording.
+Alongside it go the granularity rules — how much time may pass in a paragraph,
+and how much of an action gets shown rather than reported — which are what keep
+a long piece from thinning into summary as it runs.
 
 Styles of your own go in `SONDE_STYLES_FILE` (`.sonde/styles.json`, gitignored
 along with the rest of `.sonde/`) — a register is personal, and it has no

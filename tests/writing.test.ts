@@ -562,7 +562,7 @@ describe("writing workflow seams", () => {
     expect(model.prompts[0]).not.toContain("Style —");
     expect(model.prompts[0]).not.toContain("Hold the style described above");
     // The rules that belong to no style are sent either way.
-    expect(model.prompts[0]).toContain("keep clear of the habits");
+    expect(model.prompts[0]).toContain("Keep the prose clear and specific");
   });
 
   test("omits the style section entirely when writePrompt is given no style", () => {
@@ -586,14 +586,21 @@ describe("writing workflow seams", () => {
     expect(prompt).toContain("Simile as decoration");
   });
 
-  test("states the anti-autopilot rules once, whichever style is asked for", () => {
+  test("states only the language-neutral house rules, whichever style is asked for", () => {
     for (const style of [WRITE_STYLES.business, WRITE_STYLES.literary]) {
       const prompt = writePrompt({ brief: "b", mode: "new", style });
-      expect(prompt).toContain("read as machine-made");
-      expect(prompt).toContain("not merely X, but Y");
-      expect(prompt).toContain("No meta-commentary");
+      expect(prompt).toContain("Keep the prose clear and specific");
+      expect(prompt).toContain("Do not discuss your process or restate the brief");
+      expect(prompt).toContain("Prefer precise words");
       // House rules belong to no style, so they are stated once, not per entry.
-      expect(prompt.match(/read as machine-made/gu)).toHaveLength(1);
+      expect(prompt.match(/Keep the prose clear and specific/gu)).toHaveLength(1);
+      // Language-specific tells and prescriptive rhythm rules do not belong in
+      // the baseline prompt.
+      expect(prompt).not.toContain("When writing in English");
+      expect(prompt).not.toContain("When writing in Chinese, Japanese, or Korean");
+      expect(prompt).not.toContain("not merely X, but Y");
+      expect(prompt).not.toContain("屈辱感涌上心头");
+      expect(prompt).not.toContain("three-part list");
     }
   });
 
@@ -622,42 +629,6 @@ describe("writing workflow seams", () => {
     );
     // Stated in the style section and once more at the close: twice, not more.
     expect(prompt.match(/Simile as decoration/gu)).toHaveLength(2);
-  });
-
-  test("addresses both language layers instead of detecting one", () => {
-    // Which language the prose comes out in is not knowable when the prompt is
-    // built: "写一封英文邮件" is a Chinese brief asking for an English letter,
-    // so a run is never labelled by the script its brief happens to be in.
-    for (const brief of ["写一封英文邮件询问训练时间", "Write a welcome email"]) {
-      const prompt = writePrompt({ brief, mode: "new" });
-      expect(prompt).toContain("When writing in English");
-      expect(prompt).toContain("When writing in Chinese, Japanese, or Korean");
-      expect(prompt).toContain("屈辱感涌上心头");
-    }
-  });
-
-  test("keeps a language's own constructions out of the rules that hold for all of them", () => {
-    const prompt = writePrompt({ brief: "b", mode: "new" });
-    // An em dash means nothing to a run writing Chinese, so the rule about
-    // rationing them sits under the English condition rather than above it
-    // with the habits that survive translation.
-    expect(prompt.indexOf("Em dashes and semicolons")).toBeGreaterThan(
-      prompt.indexOf("When writing in English"),
-    );
-    expect(prompt.indexOf("not merely X, but Y")).toBeGreaterThan(
-      prompt.indexOf("When writing in English"),
-    );
-    expect(prompt.indexOf("四字成语")).toBeGreaterThan(
-      prompt.indexOf("When writing in Chinese, Japanese, or Korean"),
-    );
-    // What is left above the conditions is concept only, no construction.
-    const core = prompt.slice(
-      prompt.indexOf("read as machine-made"),
-      prompt.indexOf("When writing in English"),
-    );
-    expect(core).toContain("No meta-commentary");
-    expect(core).not.toContain("Em dash");
-    expect(core).not.toContain("；");
   });
 
   test("holds one granularity whatever the count, and converts the count only where it means the new prose", () => {
@@ -985,7 +956,7 @@ describe("writing workflow seams", () => {
         prompt.indexOf("--- character reference ---"),
       );
       expect(prompt.indexOf("--- end character reference ---")).toBeLessThan(
-        prompt.indexOf("read as machine-made"),
+        prompt.indexOf("Keep the prose clear and specific"),
       );
     });
 

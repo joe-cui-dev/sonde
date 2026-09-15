@@ -119,30 +119,12 @@ prose is paid for by then.
 _Avoid_: Style config, custom prompt
 
 **House rules**:
-The habits that make prose read as machine-made — antithesis-and-uplift, the
-three-part list as a default rhythm, meta-commentary, surviving modifiers. They
-belong to no style, so they are stated once beside the brief rather than copied
-into every style entry.
-
-A habit crosses languages; the construction that carries it does not. So the
-rules are two layers: the house rules proper, which are habits stated as
-concepts and hold in every language, and the [[Language tells]] beneath them.
-_Avoid_: Putting a construction in the upper layer
-
-**Language tells**:
-The specific constructions a habit takes in one language — "not merely X, but
-Y" and the em dash in English, 不是…而是, 四字成语 and the 像/仿佛 simile in
-Chinese. Each set is quoted in the language it occurs in, because a translated
-example is not checkable: a writer can scan its own draft for 屈辱感涌上心头 and
-cannot scan it for "an abstract noun naming the feeling".
-
-Every set goes out on every run, each one headed by the condition it applies
-under. Which language the prose will come out in is not knowable when the
-prompt is built — the language flag is optional and a brief may name its own
-target, so a Chinese brief asking for an English letter would be mislabelled by
-anything that read the brief's script. The model knows what it is writing; the
-rules only have to be addressed correctly.
-_Avoid_: Language detection, sniffing
+A small language-neutral baseline for clarity: no process commentary or
+restatement of the brief, precise rather than vague or inflated wording, and no
+modifiers or repetition that add no meaning. It is stated once beside the brief
+and deliberately avoids prescribing rhythm, imagery, punctuation, or emotional
+distance; those choices belong to the brief and the selected style.
+_Avoid_: Language-specific constructions, house style
 
 **Granularity**:
 How much story passes per paragraph: how much time, and how much of an action
