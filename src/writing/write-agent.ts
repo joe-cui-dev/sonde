@@ -125,7 +125,7 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
         });
   // One ceiling for the whole run: recomputing it for the reasoning-free retry
   // would take back the room that retry exists to give the prose.
-  const maxOutputTokens = outputTokenLimit(options.length, mode, options.draft, effort);
+  const maxOutputTokens = outputTokenLimit(options.length, effort);
   const timeout = AbortSignal.timeout(limits.maxWallMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let text = "";
@@ -215,8 +215,8 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
   }
   const complete = stoppedBy === "complete";
   // Every mode given a count, not only expand: a count is the one requirement a
-  // run can check against its own output. Under continue the measure is the
-  // whole returned text — the draft carried back plus what was added.
+  // run can check against its own output, and in every mode what comes back is
+  // the prose the count named — the piece, the continuation, or the passage.
   if (complete && options.length) {
     const written = countWords(text);
     if (written < options.length * shortfallTolerance(mode)) {
@@ -257,9 +257,15 @@ function shortfall(mode: WriteMode, written: number, length: number): string {
   const measured =
     `runs to roughly ${written.toLocaleString()} words, ` +
     `short of the ${length.toLocaleString()} asked for`;
+  const product =
+    mode === "expand"
+      ? "the expanded passage"
+      : mode === "continue"
+        ? "the continuation"
+        : "the piece";
   return mode === "expand"
-    ? `the expanded passage ${measured} — expand the saved file again to develop it further`
-    : `the piece ${measured} — check what came back before building on it`;
+    ? `${product} ${measured} — expand the saved file again to develop it further`
+    : `${product} ${measured} — check what came back before building on it`;
 }
 
 /**
@@ -301,26 +307,18 @@ const REASONING_HEADROOM_TOKENS: Record<
 };
 
 /**
- * Continue hands the draft back inside the finished piece, so its ceiling has
- * to pay for the draft as well as for the new prose. New and expand both return
- * new writing only.
+ * Every mode returns new writing only, so the ceiling pays for the prose the run
+ * was asked for and for nothing carried back alongside it.
  */
 function outputTokenLimit(
   length: number | undefined,
-  mode: WriteMode,
-  draft: string | undefined,
   reasoningEffort: Config["writeReasoningEffort"],
 ): number {
   const target = length ?? DEFAULT_LENGTH;
-  const carried = mode === "continue" ? estimateTokens(draft ?? "") : 0;
-  const proseTokens = Math.max(128, Math.ceil(target * TOKENS_PER_WORD + carried));
+  const proseTokens = Math.max(128, Math.ceil(target * TOKENS_PER_WORD));
 
   // OpenRouter's completion ceiling is shared with reasoning, so the prose
   // allowance only survives if the thinking is given room of its own on top.
   return proseTokens + REASONING_HEADROOM_TOKENS[reasoningEffort];
 }
 
-/** An upper bound, not a measure: CJK text runs near a token per character. */
-function estimateTokens(text: string): number {
-  return text.length;
-}

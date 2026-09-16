@@ -473,6 +473,26 @@ describe("writing workflow seams", () => {
     expect(readFileSync(path, "utf8")).toBe("The tide came in.\n");
   });
 
+  test("asks continue for the continuation alone, with the draft as context only", async () => {
+    const model = scriptedModel([says("And then the rain.")]);
+    await runWrite({
+      brief: "Carry it on",
+      draft: "They set out. A storm came.",
+      mode: "continue",
+      config: testConfig(databasePath()),
+      model,
+    });
+    const prompt = model.prompts[0]!;
+    expect(prompt).toContain("Carry the draft on from where it ends");
+    expect(prompt).toContain(
+      "Write the continuation alone and return it and nothing else",
+    );
+    expect(prompt).toContain("do not reproduce it");
+    // Context, not output: the writer needs the draft to know the voice it is
+    // picking up and where the continuation starts.
+    expect(prompt).toContain("They set out. A storm came.");
+  });
+
   test("asks expand for the named passage alone, with the draft as context only", async () => {
     const model = scriptedModel([says("The storm scene, opened up.")]);
     await runWrite({
@@ -631,7 +651,7 @@ describe("writing workflow seams", () => {
     expect(prompt.match(/Simile as decoration/gu)).toHaveLength(2);
   });
 
-  test("holds one granularity whatever the count, and converts the count only where it means the new prose", () => {
+  test("holds one granularity whatever the count, and converts a count it was given", () => {
     const habits = "Hold one granularity from the first line to the last";
     const scope = "Read the count above as room for one continuous stretch";
     // How much story may pass per paragraph is not a function of the word
@@ -645,18 +665,16 @@ describe("writing workflow seams", () => {
       expect(writePrompt(options)).toContain(habits);
       expect(writePrompt(options)).toContain("不知过了多久");
     }
-    // The conversion needs a figure that means the prose being asked for.
-    expect(writePrompt({ brief: "b", mode: "new", length: 2000 })).toContain(
-      scope,
-    );
-    expect(
-      writePrompt({ brief: "b", draft: "d", mode: "expand", length: 2000 }),
-    ).toContain(scope);
-    // Under continue the count covers the carried draft as well, and with no
-    // count there is no divisor at all: better silent than wrong.
-    expect(
-      writePrompt({ brief: "b", draft: "d", mode: "continue", length: 2000 }),
-    ).not.toContain(scope);
+    // The conversion needs a figure that means the prose being asked for, and
+    // every mode's count is now exactly that: each returns new prose only.
+    for (const options of [
+      { brief: "b", mode: "new" as const, length: 2000 },
+      { brief: "b", draft: "d", mode: "continue" as const, length: 2000 },
+      { brief: "b", draft: "d", mode: "expand" as const, length: 2000 },
+    ]) {
+      expect(writePrompt(options)).toContain(scope);
+    }
+    // With no count there is no divisor at all: better silent than wrong.
     expect(writePrompt({ brief: "b", mode: "new" })).not.toContain(scope);
   });
 
@@ -834,19 +852,30 @@ describe("writing workflow seams", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  test("measures a continuation against the whole piece it returns", async () => {
-    // Under continue the count covers the carried draft as well, so the draft
-    // handed back counts toward it — the alternative would warn on every
-    // continuation that added less than half the total.
-    const result = await runWrite({
+  test("measures a continuation against the continuation alone", async () => {
+    // Continue returns what it added and nothing else, so the count is measured
+    // against that — the draft it read is not prose this run produced.
+    const short = await runWrite({
+      brief: "Carry it on",
+      draft: "起风了。他把领子竖起来。天色一寸寸暗下去，街上只剩下风。",
+      mode: "continue",
+      length: 40,
+      config: testConfig(databasePath()),
+      model: scriptedModel([says("雨也来了。")]),
+    });
+    expect(short.warnings).toEqual([
+      expect.stringContaining("the continuation runs to roughly 5 words"),
+    ]);
+
+    const met = await runWrite({
       brief: "Carry it on",
       draft: "起风了。他把领子竖起来。",
       mode: "continue",
       length: 20,
       config: testConfig(databasePath()),
-      model: scriptedModel([says("起风了。他把领子竖起来。雨也来了。")]),
+      model: scriptedModel([says("雨也来了。他往巷口走，水从檐上落下来。")]),
     });
-    expect(result.warnings).toEqual([]);
+    expect(met.warnings).toEqual([]);
   });
 
   test("leaves an expansion that meets its floor unremarked", async () => {

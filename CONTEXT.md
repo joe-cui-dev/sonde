@@ -51,8 +51,8 @@ _Avoid_: Prompt, question
 
 **Draft**:
 The existing prose a writing run works from. Required by the continue and expand
-modes, refused by the new mode. Continue carries it into its output; expand
-reads it as context only and never reproduces it.
+modes, refused by the new mode. Neither mode reproduces it: it is context the
+run reads, not output it repeats.
 _Avoid_: Input text, source
 
 **Mode**:
@@ -60,17 +60,17 @@ Which of the three things a writing run does to its input: **new** writes from a
 brief alone; **continue** carries a draft on past its ending; **expand** opens up
 the one part of the draft that the brief names.
 
-New and continue produce a whole finished piece — continue emits the draft along
-with what it added, never only the increment. Expand is the exception: its
-product is the passage alone. Returning the draft with one part opened up would
-bury the new writing in prose the user already had, and would let the writer
-quietly revise work they were happy with; where the passage goes is theirs to
-decide.
+Only new produces a whole finished piece. Continue and expand both return the
+new prose alone — the continuation, or the expanded passage. Handing the draft
+back would bury the new writing in prose the user already had, and would let the
+writer quietly revise work they were happy with; where the new prose goes, and
+what it joins, is theirs to decide.
 
 **Length**:
 The word count a writing run is asked for, as `--length`. It counts the prose the
-run is being asked to produce: under new and continue the whole piece, as a soft
-target; under expand the passage, as a floor. Characters, not words, for CJK
+run is being asked to produce, which is what that run returns: under new the
+whole piece and under continue the continuation, both as a soft target; under
+expand the passage, as a floor. Characters, not words, for CJK
 writing. A length stated in the brief governs over the flag — the brief is the
 more specific instruction, and two numbers in front of the writer would
 otherwise contradict each other.
@@ -85,7 +85,7 @@ Every mode that was given a count is measured, but not against the same
 margin, because the count does not mean the same thing in each. Under expand it
 is a floor, and a few percent under a floor is the estimate's error rather than
 a miss. Under new and continue it is a soft target, where the same margin would
-fire on a piece delivered at 1,750 of the 2,000 asked for — and a warning that
+fire on prose delivered at 1,750 of the 2,000 asked for — and a warning that
 is noise is a warning nobody reads; what is worth naming there is the
 order-of-magnitude failure, prose that stopped in its first paragraph or a
 model that answered the brief with a line about not writing it. The warning

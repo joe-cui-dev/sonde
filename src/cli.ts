@@ -40,8 +40,9 @@ Options
                          ids come from SONDE_CHARACTERS_FILE
       --show-prompt      print the complete model prompt to stderr before sending
       --lang <language>  language for writing
-      --length <n>       words to write; under expand, the length of the
-                         passage it returns
+      --length <n>       words to write; the length of what the run returns —
+                         the piece under new, the new prose under continue
+                         and expand
   -h, --help             show this
 
 Every write run also saves its prose under SONDE_WRITING_DIR (.sonde/writing,

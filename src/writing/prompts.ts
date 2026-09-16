@@ -30,7 +30,7 @@ export function writePrompt(options: WritePromptOptions): string {
     lengthInstruction(options.mode, options.length),
     GRANULARITY,
     // Reads as a conversion of the count above, so it must follow it.
-    sceneScope(options.mode, options.length),
+    sceneScope(options.length),
     options.language ? `Write in ${options.language}.` : "",
     `Brief:\n${options.brief}`,
     options.draft ? `Draft:\n${options.draft}` : "",
@@ -71,10 +71,10 @@ const CHARACTERS_ARE_REFERENCE = (mode: WriteMode): string =>
         "the card fills in what the draft has not yet touched, not what it has already changed.") +
   " Draw on a card because the scene in front of you calls for it, not to prove it was read: do not restate a character's " +
   "looks, catchphrase, or past hurt in a passage that has no reason to raise it." +
-  (mode === "expand"
-    ? " Under this expansion the reference constrains only the people appearing in the passage you are writing — " +
-      "it says nothing about the rest of the draft, which per the instruction above you are not reproducing or summarizing."
-    : "");
+  (mode === "new"
+    ? ""
+    : " The reference constrains only the people appearing in the prose you are writing — " +
+      "it says nothing about the rest of the draft, which per the instruction above you are not reproducing or summarizing.");
 
 /**
  * A narrow baseline for every piece. These rules protect the output contract
@@ -105,12 +105,12 @@ const GRANULARITY =
 
 /**
  * The count as a scope rather than a quota. It needs a figure meaning the prose
- * being asked for, which rules out continue (whose length covers the carried
- * draft) and a run with no length at all. The habits above still hold in both
- * cases; only the conversion is withheld — better silent than wrong.
+ * being asked for, which every mode's count now is — leaving only a run with no
+ * length at all. The habits above still hold there; only the conversion is
+ * withheld — better silent than wrong.
  */
-function sceneScope(mode: WriteMode, length?: number): string {
-  if (!length || mode === "continue") return "";
+function sceneScope(length?: number): string {
+  if (!length) return "";
   return (
     "Read the count above as room for one continuous stretch of action, not as a summary of several. " +
     "If the material looks like running out before the count is met, go further into the moment you are already in — " +
@@ -136,12 +136,21 @@ const STYLE_HOLDS = (style: WriteStyle): string =>
     .filter(Boolean)
     .join("\n\n");
 
+/**
+ * What each mode hands back. Only new returns a whole piece: continue and expand
+ * both return the new prose alone. Handing the draft back would bury the new
+ * writing in prose the writer already had, and would let the model quietly
+ * revise work they were happy with.
+ */
 const MODE_INSTRUCTIONS: Record<WriteMode, string> = {
   new: "Write a complete, finished piece from the brief.",
   continue:
-    "Return the entire draft followed by its continuation. Produce a complete, finished piece, never only the added continuation.",
-  // Expand's product is the passage, not the piece. Handing back the whole
-  // draft buries the new writing and invites unasked-for revision.
+    "Carry the draft on from where it ends. " +
+    "Write the continuation alone and return it and nothing else. " +
+    "The draft is context, not output: do not reproduce it, do not summarize it, " +
+    "do not open by recapping what it already said, and do not head, label, frame, or introduce what you write. " +
+    "Begin at the draft's last line, in its voice and at its granularity, and carry it to a finished close. " +
+    "What comes back has to read as finished prose that can be appended straight to the end of the draft.",
   expand:
     "Expand one part of the draft, not the draft as a whole. " +
     "The brief names what to develop — a scene, a passage, a thread, a moment — and how to develop it: " +
@@ -154,8 +163,9 @@ const MODE_INSTRUCTIONS: Record<WriteMode, string> = {
 };
 
 /**
- * A count of the prose the run is asked to produce: under expand the passage,
- * otherwise the whole piece. What to do when the material runs short is the
+ * A count of the prose the run is asked to produce: the piece under new, the
+ * continuation under continue, the passage under expand. What to do when the
+ * material runs short is the
  * same in every mode and belongs with the granularity rules, so `sceneScope`
  * says it — saying it twice in two voices would weaken both.
  */

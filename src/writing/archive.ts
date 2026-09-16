@@ -21,6 +21,8 @@ export function archivePath(
 /**
 * The prose and nothing else — no brief, no usage, no front matter. Continue and
 * expand read this back as the draft, and anything extra reads as part of it.
+* What a continue run saves is its continuation alone, since that is all it
+* returns: a piece assembled from several runs is assembled by its writer.
 */
 export function saveProse(path: string, prose: string): void {
   mkdirSync(dirname(path), { recursive: true });

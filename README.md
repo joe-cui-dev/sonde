@@ -69,11 +69,13 @@ cat draft.md | sonde write "Make this fuller" --mode expand
 `new` (the default) refuses a draft. `continue` and `expand` require one, read
 either from `--in <file>` or from stdin.
 
-`new` and `continue` return a whole finished piece — `continue` gives back the
-draft with its continuation, never only the increment. `expand` is the
-exception: it returns **the expanded passage alone**. The draft is context it
-reads, not output it repeats, so what lands on your screen is the new writing
-and nothing else, ready to drop back into the original where you want it.
+`new` returns a whole finished piece. `continue` and `expand` return **the new
+prose alone** — the continuation, or the expanded passage. The draft is context
+they read, not output they repeat, so what lands on your screen is the new
+writing and nothing else, ready to drop into the original where you want it.
+
+Each run saves what it returned, so a `continue` run's file holds that
+continuation by itself; joining it to the draft is yours to do.
 
 `expand` is aimed, not blanket, and the brief is read as a list of requirements
 rather than a topic — which part to develop, where it starts, what it must now
@@ -88,8 +90,10 @@ That comes back as the storm passage on its own — opening on the first
 thunderclap, carrying the pedestrians struggling along the road — with no
 recap of what preceded it in the draft and no writing on past where it ends.
 
-`--length` is a word count in every mode. Under `new` and `continue` it is a
-soft target for the whole piece; under `expand` it is a floor for the passage.
+`--length` is a word count in every mode, and it always counts what the run
+returns. Under `new` it is a soft target for the whole piece and under
+`continue` a soft target for the continuation; under `expand` it is a floor for
+the passage.
 When the writing is in Chinese, Japanese, or Korean the count is characters
 (`--length 3000` = 3000 字). Omit the flag and the brief decides the length by
 itself; where a length in the brief and `--length` disagree, the brief wins.
