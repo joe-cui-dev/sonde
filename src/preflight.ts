@@ -169,6 +169,20 @@ async function checkWriterRouting(
     };
   }
 
+  // A router alias ("~publisher/model-latest") resolves to a concrete model per
+  // request and publishes no endpoints of its own, so the comparison below would
+  // report every pinned name as not serving the model. That reads the causality
+  // backwards: the model serves no one directly, and nothing can be pinned to it.
+  if (endpoints.length === 0) {
+    return {
+      name,
+      ok: false,
+      detail: config.writerModel.startsWith("~")
+        ? `${config.writerModel} is a router alias — it resolves to a different model per request and exposes no endpoints, so no provider can be pinned to it. Leave SONDE_WRITER_PROVIDERS blank, or point SONDE_WRITER_MODEL at a concrete model id.`
+        : `${config.writerModel} lists no endpoints at all — no provider currently serves it, so SONDE_WRITER_PROVIDERS cannot be satisfied.`,
+    };
+  }
+
   const byName = new Map(endpoints.map((e) => [e.provider_name, e]));
   const unknown = config.writerProviders.filter((p) => !byName.has(p));
   const unstructured = config.writerProviders.filter(

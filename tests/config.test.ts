@@ -45,29 +45,24 @@ describe("loadConfig", () => {
     ).toThrow(/writerReasoningEffort/);
   });
 
-  test("pins the writer to verified providers by default", () => {
-    // Unpinned, OpenRouter picked a provider per request and some of them
-    // returned a report that would not parse — a whole run's retrieval paid
-    // for and thrown away. The pin is the default, not opt-in.
-    const providers = loadConfig(KEYS).writerProviders;
-    expect(providers.length).toBeGreaterThan(0);
-    expect(providers).toContain("DeepInfra");
+  test("leaves writer routing to OpenRouter by default", () => {
+    // A provider list only holds for the one writer model it was checked
+    // against, so shipping a default meant every SONDE_WRITER_MODEL change
+    // silently inherited a pin belonging to the old model.
+    expect(loadConfig(KEYS).writerProviders).toEqual([]);
     expect(
       loadConfig({ ...KEYS, SONDE_WRITER_PROVIDERS: "" }).writerProviders,
-    ).toEqual(providers);
+    ).toEqual([]);
   });
 
-  test("writer routing can be re-pinned or handed back to OpenRouter", () => {
+  test("writer routing can be pinned to an ordered provider list", () => {
     expect(
       loadConfig({ ...KEYS, SONDE_WRITER_PROVIDERS: " Together , Parasail " })
         .writerProviders,
     ).toEqual(["Together", "Parasail"]);
 
-    // Empty means unrestricted everywhere downstream, so "any" has to be the
-    // only way to reach it — a list that is all separators is a typo.
-    expect(
-      loadConfig({ ...KEYS, SONDE_WRITER_PROVIDERS: "any" }).writerProviders,
-    ).toEqual([]);
+    // Blank is the only way to reach unrestricted routing — a non-blank list
+    // that names nobody is a typo, and silently unpinning would hide it.
     expect(() =>
       loadConfig({ ...KEYS, SONDE_WRITER_PROVIDERS: ",  ,," }),
     ).toThrow(/writerProviders/);

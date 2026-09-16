@@ -22,30 +22,6 @@ function present(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-/**
- * The upstream providers allowed to write the report.
- *
- * OpenRouter spreads a model across every provider serving it, and they do not
- * all honour a JSON schema once the response is streamed — one observed run
- * returned the report as a truncated JSON string nested inside another, another
- * an in-stream 429. Either way the report is lost after retrieval was paid for,
- * so routing is pinned to providers whose streamed output was actually checked.
- *
- * A snapshot, not a ranking — re-check it when the writer model changes.
- * `SONDE_WRITER_PROVIDERS=any` hands routing back to OpenRouter.
- */
-const VERIFIED_WRITER_PROVIDERS = [
-  "BaseTen",
-  "CoreWeave",
-  "DeepInfra",
-  "Fireworks",
-  "Morph",
-  "NextBit",
-  "Parasail",
-  "Together",
-  "Venice",
-];
-
 const num = (fallback: number) =>
   z.coerce
     .number()
@@ -73,26 +49,34 @@ const ConfigSchema = z.object({
     .default("medium"),
 
   /**
-   * Empty means "no restriction". A list is sent as an ordered preference with
-   * fallbacks off: falling back past it lands on exactly the providers not known
-   * to return parseable output, which is the failure this setting prevents.
+   * The upstream providers allowed to write the report, in preference order.
+   *
+   * Worth setting because OpenRouter spreads a model across every provider
+   * serving it, and they do not all honour a JSON schema once the response is
+   * streamed — one observed run returned the report as a truncated JSON string
+   * nested inside another, another an in-stream 429. Either way the report is
+   * lost after retrieval was paid for.
+   *
+   * Blank — the default — means no restriction. A list is sent as an ordered
+   * preference with fallbacks off: falling back past a pin lands on exactly the
+   * providers the pin was meant to avoid. No list outlives the writer model it
+   * was checked against, so there is no default worth shipping; pick one for
+   * your own model and confirm it with `sonde doctor`.
    */
   writerProviders: z
     .string()
-    .default(VERIFIED_WRITER_PROVIDERS.join(","))
+    .default("")
     .refine(
       (raw) =>
-        raw.trim().toLowerCase() === "any" ||
+        raw.trim().length === 0 ||
         raw.split(",").some((name) => name.trim().length > 0),
-      'must be a comma-separated list of OpenRouter provider names, or "any" to let OpenRouter route',
+      "must be a comma-separated list of OpenRouter provider names, or blank to let OpenRouter route",
     )
     .transform((raw) =>
-      raw.trim().toLowerCase() === "any"
-        ? []
-        : raw
-            .split(",")
-            .map((name) => name.trim())
-            .filter((name) => name.length > 0),
+      raw
+        .split(",")
+        .map((name) => name.trim())
+        .filter((name) => name.length > 0),
     ),
 
   maxSteps: num(16),
