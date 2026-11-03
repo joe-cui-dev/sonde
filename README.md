@@ -24,6 +24,7 @@ npm run research "…" -- --json            # full result as JSON
 npm run dev -- write "Announce the launch" # write a new piece
 npm run dev -- runs                       # list past runs with what each cost
 npm run dev -- doctor                     # preflight: keys, model slugs, credit left
+npm run dev -- eval                       # run the writing eval set (billed)
 npm run build && npm start research "…"   # compiled
 ```
 
@@ -229,6 +230,57 @@ Sonde delivers that partial prose with an incomplete marker and exits with code
 2. A partial draft can still be useful; unlike a partial research report, it
 does not imply unvalidated evidence is safe to rely on.
 
+## Writing evals
+
+`sonde eval` runs a fixed set of writing cases through the real workflow and
+checks what comes back, so a prompt change is judged by numbers that moved
+rather than by rereading every piece. Every run is an ordinary, billed writing
+run, recorded in run history like any other.
+
+```bash
+sonde eval                                    # every case once
+sonde eval --only expand-zh-storm --repeat 3  # one case, three times
+sonde eval --label "shorter granularity rules"
+```
+
+Cases live in `evals/writing/cases.json`, drafts beside them in
+`evals/writing/drafts/`. Each case is one `sonde write` invocation — `mode`,
+`brief`, optional `draft`, `style`, `lang`, `length` — plus `mustMention`, the
+terms the prose has to contain. Cases use no characters: a cast is per-user and
+gitignored, and a case that depended on one would measure that file. A styles
+file in `SONDE_STYLES_FILE` does apply, so a local override of a built-in style
+changes what the eval measures.
+
+Each run gets the checks that apply to it:
+
+| Check | Fails when |
+| --- | --- |
+| `complete` | the run did not finish with prose (nothing else is measured then) |
+| `length` | the prose falls below the same floor `sonde write` warns at — 0.9× under expand, 0.5× otherwise |
+| `echo` | over 10% of the prose repeats the draft in runs of 8+ characters or words |
+| `commentary` | a preamble, sign-off, or label line ("以下是续写：", "I hope this…") |
+| `mentions` | a `mustMention` term is missing |
+
+They are proxies. A pass says the prose did not fail in any of these ways; it
+says nothing about whether it is good, or whether the brief's subtler
+requirements — where to start, what to show — were honoured.
+
+The report goes to `.sonde/evals/writing-<timestamp>.json`, with every run's
+prose, its run id, and a hash of the exact prompt sent. The next eval compares
+itself with the latest report (or `--baseline <file>`) case by case:
+
+```
+Compared with .sonde/evals/writing-20261103T101500.json
+  expand-zh-storm          pass 100% → 0%  regressed  prompt changed  length 1.08 → 0.74
+  continue-zh-ferry        pass 100% → 100%  same prompt  echo 0.02 → 0.04
+```
+
+"same prompt" means the case's prompt did not change between the two reports,
+so whatever moved is the model's own variance — run with `--repeat` before
+reading anything into it. `sonde eval` exits 1 if any run failed a check. An
+interrupted eval is not saved, since the next comparison would read every case
+it never reached as dropped.
+
 ## Layout
 
 ```
@@ -246,11 +298,12 @@ src/
   writing/              one-turn prose: write-agent, prompts, styles, characters
     config-file.ts       shared read/parse/error-report for styles.json and characters.json
     archive.ts          saves each piece to .sonde/writing/<timestamp>-<mode>-<run id>.md
+  eval/                 writing eval: cases loader, checks, runner, comparison
   store/                sqlite: page cache, run records, event trace
   telemetry/index.ts    AI SDK telemetry integration → sqlite
   util/url.ts           canonicalization + dedupe
   preflight.ts          doctor: key, model capability and credit checks
-  cli.ts                sonde research / sonde runs / sonde doctor
+  cli.ts                sonde research / write / eval / runs / doctor
 ```
 
 ## Budget gates
@@ -402,8 +455,9 @@ finished prose, as before.
 
 Deliberately out of scope for this skeleton, roughly in order of value:
 
-- **Eval set** — fixture questions + a scoring script, so prompt changes can be
-  judged rather than guessed at.
+- **Research eval set** — fixture questions + a scoring script, as `sonde eval`
+  already does for writing, so research prompt changes can be judged rather
+  than guessed at.
 - **Rerank before context** — right now `read_pages` truncates at 8k chars per
   page. Chunking and reranking against the sub-question would spend context far
   better.

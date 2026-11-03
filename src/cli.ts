@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { runResearch } from "./agent/research-agent.js";
 import { loadConfig, type Config } from "./config.js";
 import { openDb } from "./store/db.js";
@@ -14,6 +16,9 @@ import { WRITE_STYLES } from "./writing/styles.js";
 import { loadStyles, requireStyle } from "./writing/style-file.js";
 import { loadCharacters, requireCharacter } from "./writing/character-file.js";
 import { WritingPreviewRenderer } from "./writing-preview.js";
+import { loadWritingCases } from "./eval/writing-cases.js";
+import { compareReports, latestReport, readReport, runWritingEval } from "./eval/writing-eval.js";
+import { formatComparison, formatRun, formatSummary } from "./eval/format.js";
 import type { ResearchResult, RunEvent, WriteMode, WriteResult } from "./types.js";
 
 const USAGE = `
@@ -22,6 +27,7 @@ sonde — a web research agent
   sonde research "<question>" [options]
   sonde write "<brief>" [--mode new|continue|expand] [--in draft.md]
   sonde runs [--limit N]
+  sonde eval [--cases file] [--only id,id] [--repeat N] [--baseline file]
   sonde doctor
 
 Options
@@ -43,6 +49,11 @@ Options
       --length <n>       words to write; the length of what the run returns —
                          the piece under new, the new prose under continue
                          and expand
+      --cases <file>     eval: cases file (default evals/writing/cases.json)
+      --only <ids>       eval: comma-separated case ids to run
+      --repeat <n>       eval: runs per case (default 1)
+      --baseline <file>  eval: report to compare with (default: the latest)
+      --label <text>     eval: a note saved with the report
   -h, --help             show this
 
 Every write run also saves its prose under SONDE_WRITING_DIR (.sonde/writing,
@@ -55,6 +66,10 @@ gitignored). One named for a built-in style replaces it. See styles.example.json
 A project's cast goes in SONDE_CHARACTERS_FILE (.sonde/characters.json, also
 gitignored) — a record of ids to character cards, injected with --character
 <id> (repeatable). See characters.example.json.
+
+sonde eval runs the writing cases through the real model — every run is billed
+— checks what came back, saves a report under .sonde/evals, and compares it
+with the previous one. Exits 1 if any run failed a check.
 `;
 
 async function main(): Promise<number> {
@@ -75,6 +90,11 @@ async function main(): Promise<number> {
       "show-prompt": { type: "boolean", default: false },
       lang: { type: "string" },
       length: { type: "string" },
+      cases: { type: "string" },
+      only: { type: "string" },
+      repeat: { type: "string" },
+      baseline: { type: "string" },
+      label: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -130,6 +150,7 @@ async function main(): Promise<number> {
   }
 
   if (command === "write") return writeCommand(values, positionals.slice(1));
+  if (command === "eval") return evalCommand(values);
 
   if (command !== "research") {
     process.stderr.write(`Unknown command: ${command}\n${USAGE}`);
@@ -277,6 +298,69 @@ async function writeCommand(
   logWriteUsage(result, log);
   if (savedTo) logSavedPath(savedTo, result.complete, log);
   return result.complete ? 0 : 2;
+}
+
+const DEFAULT_EVAL_CASES = "evals/writing/cases.json";
+
+async function evalCommand(
+  values: Record<string, string | string[] | boolean | undefined>,
+): Promise<number> {
+  const casesFile = typeof values.cases === "string" ? values.cases : DEFAULT_EVAL_CASES;
+  let cases = loadWritingCases(casesFile);
+  if (typeof values.only === "string") {
+    const only = values.only.split(",").map((id) => id.trim()).filter(Boolean);
+    const unknown = only.filter((id) => !cases.some((entry) => entry.id === id));
+    if (unknown.length) {
+      throw new Error(`--only names no case ${unknown.join(", ")}; cases are ${cases.map((entry) => entry.id).join(", ")}.`);
+    }
+    cases = cases.filter((entry) => only.includes(entry.id));
+  }
+  const repeat = values.repeat === undefined ? 1 : Number(values.repeat);
+  if (!Number.isInteger(repeat) || repeat < 1) throw new Error("--repeat must be a whole number of runs, 1 or more.");
+  const config = loadConfig();
+  config.logLevel = values.quiet ? "silent" : "info";
+  const log = createLogger(config.logLevel);
+  const dir = join(dirname(config.dbPath), "evals");
+  // Read before this run saves its own, which would otherwise be the newest.
+  const baseline = typeof values.baseline === "string"
+    ? { path: values.baseline, report: readReport(values.baseline) }
+    : latestReport(dir);
+  const controller = new AbortController();
+  process.once("SIGINT", () => {
+    log.warn("interrupted — stopping after the current run; this report will not be saved");
+    controller.abort();
+  });
+  log.info(log.c.dim(`${cases.length} case(s) × ${repeat} · ${config.writeModel} · every run is billed`));
+  const report = await runWritingEval({
+    cases, casesFile, config, repeat,
+    label: typeof values.label === "string" ? values.label : undefined,
+    commit: gitCommit(),
+    signal: controller.signal,
+    onRun: (run) => log.info(formatRun(run, log.c)),
+  });
+  log.info(`\n${formatSummary(report, log.c)}`);
+  // A partial eval is not a baseline: the next comparison would read every case
+  // it never reached as dropped.
+  if (!controller.signal.aborted) {
+    const path = join(dir, `writing-${report.startedAt.replace(/[-:]/g, "").replace(/\..*$/, "")}.json`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path, JSON.stringify(report, null, 2) + "\n", "utf8");
+    if (baseline) log.info(`\n${formatComparison(compareReports(baseline.report, report), baseline.path, log.c)}`);
+    log.info(log.c.green(`\n→ report saved to ${path}`));
+  }
+  if (values.json) await writeStdout(JSON.stringify(report, null, 2) + "\n");
+  return report.runs.every((run) => run.passed) && !controller.signal.aborted ? 0 : 1;
+}
+
+/** Which code a report measured; "+dirty" when the working tree had changes on top. */
+function gitCommit(): string | undefined {
+  try {
+    const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const dirty = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return dirty ? `${head}+dirty` : head;
+  } catch {
+    return undefined;
+  }
 }
 
 /** A word count is a count: a bad one would reach the model as "roughly NaN". */

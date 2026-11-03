@@ -1,0 +1,67 @@
+{
+  "cases": [
+    {
+      "id": "new-zh-scene",
+      "mode": "new",
+      "brief": "写一段雨夜里便利店店员和一位快打烊时才进门的顾客之间的场景，只写这一个场景，不要交代前因后果。",
+      "lang": "Chinese",
+      "length": 400,
+      "mustMention": ["店员"],
+      "note": "Short new piece, no style: the bare prompt with house rules only. Not 便利店: a scene set in one shows it rather than naming it."
+    },
+    {
+      "id": "new-en-explainer",
+      "mode": "new",
+      "brief": "Explain how a heat pump can move heat out of a cold garden and into a warmer house, for a reader with no physics background.",
+      "style": "explainer",
+      "length": 450,
+      "mustMention": ["heat pump"],
+      "note": "Non-fiction register; commentary and sign-offs show up most here."
+    },
+    {
+      "id": "new-zh-long",
+      "mode": "new",
+      "brief": "写一个短篇：小镇上一个修钟表的老人，铺子开张的最后一天。从早上开门写到晚上锁门。",
+      "style": "literary",
+      "lang": "Chinese",
+      "length": 2000,
+      "mustMention": ["钟"],
+      "note": "Long piece covering a whole day: the case where granularity drifts into summary."
+    },
+    {
+      "id": "continue-zh-ferry",
+      "mode": "continue",
+      "brief": "接着写：这个男人为什么拿着一枚硬币来，林秀和他之间发生了什么。在船离岸时结束。",
+      "draft": "drafts/ferry-zh.md",
+      "length": 800,
+      "mustMention": ["硬币"],
+      "note": "Continuation must start after the draft's last line, not retell it."
+    },
+    {
+      "id": "continue-en-lighthouse",
+      "mode": "continue",
+      "brief": "Continue: Ines goes down to find the door. End before she learns why the log stops.",
+      "draft": "drafts/lighthouse-en.md",
+      "length": 600,
+      "mustMention": ["door"]
+    },
+    {
+      "id": "expand-zh-storm",
+      "mode": "expand",
+      "brief": "详细展开原文中暴风雨那一段：从第一声雷开始写，写到陈默躲进百货大楼屋檐下为止，并额外描写街上行人顶着风雨艰难行走的样子，字数 1200 字以上。",
+      "draft": "drafts/storm-zh.md",
+      "lang": "Chinese",
+      "length": 1200,
+      "mustMention": ["雷", "屋檐"],
+      "note": "The README's expand example in miniature: a named passage, a start point, added material, a floor."
+    },
+    {
+      "id": "expand-en-market",
+      "mode": "expand",
+      "brief": "Expand the last night of the market into a full scene, from the first customers arriving to the generators going off. Include one conversation between Dev's aunt and a customer who has not been in for years. At least 700 words.",
+      "draft": "drafts/market-en.md",
+      "length": 700,
+      "mustMention": ["generator"]
+    }
+  ]
+}

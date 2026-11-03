@@ -15,7 +15,7 @@ import type {
   WriteStyleId,
 } from "../types.js";
 import { assertFieldLimit, hashCharactersFile, loadCharacters, requireCharacter } from "./character-file.js";
-import { countWords } from "./length.js";
+import { countWords, shortfallTolerance } from "./length.js";
 import { writePrompt } from "./prompts.js";
 import { loadStyles, requireStyle } from "./style-file.js";
 import { defaultStyle } from "./styles.js";
@@ -234,20 +234,6 @@ export async function runWrite(options: RunWriteOptions): Promise<WriteResult> {
 }
 
 const DEFAULT_LENGTH = 800;
-
-/** The count is an estimate, so only a miss wide enough to be real is worth reporting. */
-const SHORTFALL_TOLERANCE = 0.9;
-
-/**
- * Under new and continue the count is a soft target, so only order-of-magnitude
- * misses are worth naming — a piece that stopped in its first paragraph, or a
- * model that declined the brief. A warning that is noise is one nobody reads.
- */
-const SOFT_TARGET_TOLERANCE = 0.5;
-
-function shortfallTolerance(mode: WriteMode): number {
-  return mode === "expand" ? SHORTFALL_TOLERANCE : SOFT_TARGET_TOLERANCE;
-}
 
 /**
  * Reports the count and nothing more. A short return has several causes the
