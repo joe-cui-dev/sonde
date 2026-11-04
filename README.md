@@ -288,7 +288,7 @@ API. It is a third workflow: no retrieval, no prose, a clip saved to disk.
 
 ```bash
 sonde video "the camera pushes in slowly as the lamp flickers" \
-  --first https://example.com/room.png
+  --first ./room.png
 sonde video "she turns toward the window" --first https://…/a.png --last https://…/b.png \
   --duration 8 --resolution 720p --aspect 9:16
 sonde video fetch run_1a2b3c4d     # collect a clip the run stopped waiting for
@@ -299,12 +299,12 @@ stderr. Defaults are 5 seconds at 480p, audio on where the model offers it
 (`--no-audio` to turn it off) and the provider's watermark off. Without
 `--aspect` none is sent and the model follows the image.
 
-**Frames are URLs.** OpenRouter documents frames as https URLs and says
-nothing about data URIs, so a local path is refused unless you add
-`--allow-data-uri`, which sends the file inline. That is unverified: a job the
-provider rejects after accepting it may fail as a job, and whether a failed
-job is billed is not documented either. The run record keeps a local frame's
-path and SHA-256, never its bytes.
+**Frames are URLs or local files.** An https URL is passed through; a local
+PNG, JPEG or WebP is sent inline as a base64 data URI, which is how
+OpenRouter's video skill documents local frames — there is no upload endpoint.
+No size limit is documented; a request that is too large is refused at
+submission (HTTP 413), before any job exists. The run record keeps a local
+frame's path and SHA-256, never its bytes.
 
 **Priced before it is submitted.** A submitted job runs to its end and is
 billed whether or not Sonde is still waiting, so the only gate is beforehand:

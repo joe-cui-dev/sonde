@@ -29,7 +29,7 @@ interface VideoSeams {
 
 export interface RunVideoOptions extends VideoSeams {
   direction: string;
-  /** An https URL, or a local image path when `allowDataUri` is set. */
+  /** An https URL, or a local PNG, JPEG or WebP path sent inline. */
   first: string;
   last?: string;
   duration?: number;
@@ -38,7 +38,6 @@ export interface RunVideoOptions extends VideoSeams {
   /** False for `--no-audio`. */
   audio?: boolean;
   seed?: number;
-  allowDataUri?: boolean;
   runId?: string;
 }
 
@@ -61,10 +60,9 @@ export async function runVideo(options: RunVideoOptions): Promise<VideoResult> {
   const direction = options.direction.trim();
   if (!direction) throw new Error("A direction is required.");
   const profile = requireProfile(config.videoModel);
-  const allowDataUri = options.allowDataUri ?? false;
   const frames = [
-    resolveFrame(options.first, "first_frame", allowDataUri),
-    ...(options.last ? [resolveFrame(options.last, "last_frame", allowDataUri)] : []),
+    resolveFrame(options.first, "first_frame"),
+    ...(options.last ? [resolveFrame(options.last, "last_frame")] : []),
   ];
   const client = clientFor(config, options);
   const model = (await client.models(options.signal)).find((m) => m.id === config.videoModel);

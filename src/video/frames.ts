@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import type { VideoFrameSource } from "../types.js";
 
@@ -18,31 +18,24 @@ export interface ResolvedFrame {
 }
 
 /**
-* Turns `--first` or `--last` into something OpenRouter can fetch.
+* Turns `--first` or `--last` into something OpenRouter can take.
 *
-* OpenRouter documents frames as URLs and says nothing either way about data
-* URIs, so a local file is sent only when the caller opts in. A data URI the
-* API takes at submission but the provider rejects later may fail as a job,
-* and whether a failed job is billed is not documented either.
+* A URL is passed through; a local file is sent inline as a base64 data URI,
+* which OpenRouter's openrouter-video skill documents for local frames. There
+* is no upload endpoint, and no documented size limit beyond a 413 at
+* submission — which refuses the request before any job exists.
 */
-export function resolveFrame(
-  value: string,
-  frameType: "first_frame" | "last_frame",
-  allowDataUri: boolean,
-): ResolvedFrame {
+export function resolveFrame(value: string, frameType: "first_frame" | "last_frame"): ResolvedFrame {
   if (/^https?:\/\//i.test(value)) {
     return { url: value, source: { frameType, kind: "url", url: value } };
   }
   const flag = frameType === "first_frame" ? "--first" : "--last";
-  if (!allowDataUri) {
-    throw new Error(
-      `${flag} ${value} is a local file, and OpenRouter is only documented to take frames as URLs. ` +
-        "Host the image and pass its https URL, or add --allow-data-uri to send the file inline.",
-    );
-  }
   const type = MEDIA_TYPES[extname(value).toLowerCase()];
   if (!type) {
-    throw new Error(`${flag} ${value} is not a PNG, JPEG or WebP image.`);
+    throw new Error(`${flag} ${value} is not a PNG, JPEG or WebP image, nor an http(s) URL.`);
+  }
+  if (!existsSync(value)) {
+    throw new Error(`${flag} ${value} does not exist.`);
   }
   const bytes = readFileSync(value);
   return {

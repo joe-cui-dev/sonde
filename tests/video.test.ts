@@ -212,20 +212,12 @@ describe("video run", () => {
     expect(runRow(config.dbPath, "run_cap")).toBeUndefined();
   });
 
-  test("refuses a local frame unless data URIs are allowed, and records it by hash when they are", async () => {
+  test("sends a local frame inline and records it by path and hash, never its bytes", async () => {
     const config = testConfig(databasePath());
     const image = join(mkdtempSync(join(tmpdir(), "sonde-frame-")), "first.png");
     writeFileSync(image, "png-bytes");
-    const refused = fakeOpenRouter();
-    await expect(
-      runVideo({ direction: "x", first: image, config, fetch: refused.fetch }),
-    ).rejects.toThrow(/--allow-data-uri/);
-    expect(refused.calls).toHaveLength(0);
-
     const api = fakeOpenRouter();
-    const result = await runVideo({
-      direction: "x", first: image, allowDataUri: true, config, fetch: api.fetch, pollIntervalMs: 1,
-    });
+    const result = await runVideo({ direction: "x", first: image, config, fetch: api.fetch, pollIntervalMs: 1 });
     const frame = (api.calls.find((call) => call.method === "POST")!.body!["frame_images"] as Array<{ image_url: { url: string } }>)[0]!;
     expect(frame.image_url.url).toBe(`data:image/png;base64,${Buffer.from("png-bytes").toString("base64")}`);
     expect(result.record.frames[0]).toEqual({
@@ -233,6 +225,19 @@ describe("video run", () => {
       sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     expect(runRow(config.dbPath, result.runId)!.report_json).not.toContain("base64");
+  });
+
+  test("refuses a local frame that is missing or not an image before calling OpenRouter", async () => {
+    const config = testConfig(databasePath());
+    const dir = mkdtempSync(join(tmpdir(), "sonde-frame-"));
+    const api = fakeOpenRouter();
+    await expect(
+      runVideo({ direction: "x", first: join(dir, "missing.png"), config, fetch: api.fetch }),
+    ).rejects.toThrow(/does not exist/);
+    await expect(
+      runVideo({ direction: "x", first: join(dir, "notes.txt"), config, fetch: api.fetch }),
+    ).rejects.toThrow(/not a PNG, JPEG or WebP/);
+    expect(api.calls).toHaveLength(0);
   });
 
   test("reports a failed job with the provider's reason and does not retry it", async () => {

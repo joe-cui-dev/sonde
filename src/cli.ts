@@ -52,15 +52,14 @@ Options
       --length <n>       words to write; the length of what the run returns —
                          the piece under new, the new prose under continue
                          and expand
-      --first <image>    video: the frame the clip opens on (an https URL)
+      --first <image>    video: the frame the clip opens on (an https URL or a
+                         local PNG, JPEG or WebP file)
       --last <image>     video: a frame the clip must end on
       --duration <s>     video: seconds of clip (default 5)
       --resolution <r>   video: e.g. 480p (default) or 720p
       --aspect <ratio>   video: e.g. 16:9; omitted, the model follows the image
       --no-audio         video: leave the clip silent
       --seed <n>         video: repeat a generation
-      --allow-data-uri   video: send local image files inline (not documented
-                         by OpenRouter — a rejected job may still be billed)
       --cases <file>     eval: cases file (default evals/writing/cases.json)
       --only <ids>       eval: comma-separated case ids to run
       --repeat <n>       eval: runs per case (default 1)
@@ -119,7 +118,6 @@ async function main(): Promise<number> {
       aspect: { type: "string" },
       "no-audio": { type: "boolean", default: false },
       seed: { type: "string" },
-      "allow-data-uri": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -348,7 +346,6 @@ async function videoCommand(
         aspectRatio: typeof values.aspect === "string" ? values.aspect : undefined,
         audio: values["no-audio"] ? false : undefined,
         seed: parseCount(values.seed, "--seed", true),
-        allowDataUri: values["allow-data-uri"] === true,
       });
   // stdout carries the clip's path and nothing else, so it can be piped.
   if (values.json) await writeStdout(JSON.stringify(result, null, 2) + "\n");
