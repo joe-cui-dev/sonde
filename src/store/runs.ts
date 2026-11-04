@@ -4,6 +4,7 @@ import type {
   ResearchReport,
   SourceRef,
   StopReason,
+  VideoRecord,
 } from "../types.js";
 
 export class RunStore {
@@ -12,7 +13,7 @@ export class RunStore {
   start(
     runId: string,
     question: string,
-    kind: "research" | "writing" = "research",
+    kind: "research" | "writing" | "video" = "research",
   ): void {
     this.db
       .prepare("INSERT INTO runs (id, question, started_at, kind) VALUES (?, ?, ?, ?)")
@@ -34,6 +35,40 @@ export class RunStore {
         Date.now(), stoppedBy, usage.usd, usage.totalTokens,
         usage.searchCredits, text, runId,
       );
+  }
+
+  /**
+  * A video run's record, saved at every change rather than once at the end:
+  * the job id has to be on disk before anything else can go wrong, since the
+  * job is paid for from the moment it is submitted.
+  */
+  saveVideo(
+    runId: string,
+    record: VideoRecord,
+    stoppedBy: StopReason | null = null,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE runs SET finished_at = ?, stopped_by = ?, usd = ?, total_tokens = 0,
+         search_credits = 0, report_json = ? WHERE id = ?`,
+      )
+      .run(
+        stoppedBy ? Date.now() : null, stoppedBy, record.costUsd,
+        safeJson(record), runId,
+      );
+  }
+
+  /** A video run's record, or null when the id names no video run. */
+  video(runId: string): { direction: string; stoppedBy: StopReason | null; record: VideoRecord } | null {
+    const row = this.db
+      .prepare("SELECT question, stopped_by, report_json FROM runs WHERE id = ? AND kind = 'video'")
+      .get(runId) as { question: string; stopped_by: StopReason | null; report_json: string | null } | undefined;
+    if (!row?.report_json) return null;
+    return {
+      direction: row.question,
+      stoppedBy: row.stopped_by,
+      record: JSON.parse(row.report_json) as VideoRecord,
+    };
   }
 
   event(runId: string, type: string, payload: unknown): void {

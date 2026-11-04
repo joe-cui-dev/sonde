@@ -1,15 +1,16 @@
 # Sonde
 
 Sonde runs model-backed workflows over a shared spine: configuration, budget
-accounting, run history, and streaming output. It has two workflows — research,
-which answers a question from retrieved source evidence, and writing, which
-produces prose from a brief or an existing draft.
+accounting, run history, and streaming output. It has three workflows — research,
+which answers a question from retrieved source evidence; writing, which
+produces prose from a brief or an existing draft; and video, which animates a
+still image into a clip.
 
 ## Language
 
 **Workflow**:
-One kind of work Sonde knows how to do end to end. There are two: research and
-writing. They share the spine and nothing else.
+One kind of work Sonde knows how to do end to end. There are three: research,
+writing and video. They share the spine and nothing else.
 _Avoid_: Pipeline, job, task
 
 **Run**:
@@ -182,3 +183,37 @@ shape of the request whose whole ceiling belongs to the writing. It is a second
 charge, so it is announced as a warning rather than made quietly, and it is
 narrow on purpose: [[Partial prose]] is delivered as what it is rather than
 thrown away and bought again.
+
+## Video
+
+**Video run**:
+A run of the video workflow: one image-to-video generation, no retrieval, no
+prose. Its product is a clip.
+
+**Direction**:
+The text that tells a video run what should happen in the clip — motion,
+camera, atmosphere. Unlike a brief it is guidance rather than a list of binding
+requirements: video models follow it loosely, and nothing checks it afterwards.
+_Avoid_: Prompt, brief, shot
+
+**Frame**:
+A still image a video run is pinned to: the **first frame** the clip opens on,
+which every video run has, and optionally a **last frame** it must end on.
+_Avoid_: Reference image, input image
+
+**Clip**:
+The video a video run produces.
+_Avoid_: Video, output
+
+**Generation job**:
+The work a video run hands to the provider. Once submitted it runs to its end
+and is paid for whether or not Sonde is still waiting, so a video run that
+stops waiting has not stopped spending — the job can still be collected later.
+_Avoid_: Task, request
+
+**Video spend cap**:
+The most a single video run may be estimated to cost before it is submitted.
+It is the only gate a video run has: after submission there is nothing left to
+stop, so what is recorded afterwards is the provider's actual charge, not a
+check against the cap. A model whose cost Sonde cannot estimate is refused
+outright, since a run it cannot price is a run it cannot gate.

@@ -111,6 +111,22 @@ const ConfigSchema = z.object({
   maxCharactersFileBytes: num(65_536),
   cacheTtlHours: num(168),
 
+  /** Must be a model Sonde has a profile for — one it can price is one it can gate. */
+  videoModel: z.string().default("bytedance/seedance-2.0-mini"),
+  /**
+   * The estimate a video run must stay under to be submitted. Separate from
+   * SONDE_MAX_USD because it gates something different: once a job is
+   * submitted nothing can stop it, so this is checked once, beforehand.
+   */
+  videoMaxUsd: num(1),
+  /** Where clips are saved. Under .sonde/, which is gitignored. */
+  videoDir: z.string().default(".sonde/video"),
+  /**
+   * How long `sonde video` waits for a clip before handing back the run id.
+   * Stopping the wait does not stop the job; `sonde video fetch` collects it.
+   */
+  videoMaxWaitMs: num(600_000),
+
   logLevel: z.enum(["silent", "info", "debug"]).default("info"),
   appUrl: z.string().default("https://github.com/sonde"),
   appTitle: z.string().default("Sonde"),
@@ -157,6 +173,10 @@ export function loadConfig(
     maxCharacterFieldChars: env.SONDE_MAX_CHARACTER_FIELD_CHARS,
     maxCharactersFileBytes: env.SONDE_MAX_CHARACTERS_FILE_BYTES,
     cacheTtlHours: env.SONDE_CACHE_TTL_HOURS,
+    videoModel: env.SONDE_VIDEO_MODEL,
+    videoMaxUsd: env.SONDE_VIDEO_MAX_USD,
+    videoDir: env.SONDE_VIDEO_DIR,
+    videoMaxWaitMs: env.SONDE_VIDEO_MAX_WAIT_MS,
     logLevel: env.SONDE_LOG_LEVEL,
     appUrl: env.SONDE_APP_URL,
     appTitle: env.SONDE_APP_TITLE,

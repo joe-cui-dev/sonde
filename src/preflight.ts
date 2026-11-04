@@ -1,4 +1,6 @@
 import type { Config } from "./config.js";
+import { VIDEO_MODELS_URL, type VideoModel } from "./video/openrouter.js";
+import { VIDEO_PROFILES } from "./video/profiles.js";
 
 export interface Check {
   name: string;
@@ -68,6 +70,8 @@ export async function preflight(
   checks.push(checkWriteModel(config, models));
 
   checks.push(await checkWriterRouting(config, signal));
+
+  checks.push(await checkVideoModel(config, signal));
 
   checks.push(checkKeyShape("tavily key", config.tavilyApiKey, "tvly-"));
 
@@ -213,6 +217,43 @@ async function checkWriterRouting(
     name,
     ok: true,
     detail: `pinned to ${config.writerProviders.length} of ${endpoints.length} providers, fallbacks off`,
+  };
+}
+
+/**
+* The video model must exist, start a clip from an image, and have a profile:
+* without one Sonde cannot price a run, and a run it cannot price it will not
+* submit.
+*/
+async function checkVideoModel(config: Config, signal: AbortSignal): Promise<Check> {
+  const name = "video model";
+  const slug = config.videoModel;
+  if (!VIDEO_PROFILES[slug]) {
+    return {
+      name,
+      ok: false,
+      detail: `${slug} has no video profile, so its cost cannot be estimated — profiled: ${Object.keys(VIDEO_PROFILES).join(", ")}`,
+    };
+  }
+  let models: VideoModel[];
+  try {
+    const res = await fetch(VIDEO_MODELS_URL, { signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    models = ((await res.json()) as { data?: VideoModel[] }).data ?? [];
+  } catch (error) {
+    return { name, ok: false, detail: `${slug} — not verified: could not fetch ${VIDEO_MODELS_URL}: ${message(error)}` };
+  }
+  const model = models.find((m) => m.id === slug);
+  if (!model) {
+    return { name, ok: false, detail: `"${slug}" is not in OpenRouter's video catalogue (${VIDEO_MODELS_URL})` };
+  }
+  if (!(model.supported_frame_images ?? []).includes("first_frame")) {
+    return { name, ok: false, detail: `"${slug}" cannot start a clip from an image` };
+  }
+  return {
+    name,
+    ok: true,
+    detail: `${slug} — ${(model.supported_resolutions ?? []).join("/")}, frames: ${(model.supported_frame_images ?? []).join(" + ")}`,
   };
 }
 

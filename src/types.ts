@@ -177,3 +177,62 @@ export type WriteEvent =
   | { type: "warning"; message: string }
   | { type: "write_end"; result: WriteResult };
 export type WriteEventSink = (event: WriteEvent) => void;
+
+/** Where a frame came from. A local file is recorded by path and hash, never by its bytes. */
+export type VideoFrameSource =
+  | { frameType: "first_frame" | "last_frame"; kind: "url"; url: string }
+  | { frameType: "first_frame" | "last_frame"; kind: "file"; path: string; sha256: string };
+
+/** The provider's view of a generation job, as OpenRouter reports it. */
+export type VideoJobStatus =
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+/**
+ * What a video run keeps in its run record. Written as soon as the job is
+ * submitted, because from then on the job is paid for whether or not this
+ * process is still around to collect it.
+ */
+export interface VideoRecord {
+  model: string;
+  /** Null only when submission itself failed: nothing was handed over, nothing is owed. */
+  jobId: string | null;
+  pollingUrl: string | null;
+  /** The parameters actually sent, frames excluded — those are in `frames`. */
+  request: {
+    duration: number;
+    resolution: string;
+    aspectRatio?: string;
+    generateAudio?: boolean;
+    seed?: number;
+  };
+  frames: VideoFrameSource[];
+  estimateUsd: number;
+  /** The provider's charge, once it reports one. */
+  costUsd: number | null;
+  status: VideoJobStatus | null;
+  clipPath: string | null;
+  error?: string;
+}
+
+export interface VideoResult {
+  runId: string;
+  direction: string;
+  record: VideoRecord;
+  /** Only complete, max_wall_ms (stopped waiting, job still collectable) or error. */
+  stoppedBy: StopReason;
+  warnings: string[];
+}
+
+export type VideoEvent =
+  | { type: "video_start"; runId: string; direction: string; model: string; estimateUsd: number }
+  | { type: "video_submitted"; jobId: string }
+  /** Fires on each change of job status, not on every poll. */
+  | { type: "video_status"; status: VideoJobStatus; elapsedMs: number }
+  | { type: "warning"; message: string }
+  | { type: "video_end"; result: VideoResult };
+export type VideoEventSink = (event: VideoEvent) => void;

@@ -1,6 +1,6 @@
 # Sonde
 
-A model-backed research and writing tool in TypeScript.
+A model-backed research, writing and image-to-video tool in TypeScript.
 
 - **Orchestration** — Vercel AI SDK v7 (`ToolLoopAgent`)
 - **Reasoning** — OpenRouter, via `@openrouter/ai-sdk-provider`
@@ -281,6 +281,51 @@ reading anything into it. `sonde eval` exits 1 if any run failed a check. An
 interrupted eval is not saved, since the next comparison would read every case
 it never reached as dropped.
 
+## Video
+
+`sonde video` animates a still image into a clip through OpenRouter's video
+API. It is a third workflow: no retrieval, no prose, a clip saved to disk.
+
+```bash
+sonde video "the camera pushes in slowly as the lamp flickers" \
+  --first https://example.com/room.png
+sonde video "she turns toward the window" --first https://…/a.png --last https://…/b.png \
+  --duration 8 --resolution 720p --aspect 9:16
+sonde video fetch run_1a2b3c4d     # collect a clip the run stopped waiting for
+```
+
+stdout carries the clip's path and nothing else; progress and cost go to
+stderr. Defaults are 5 seconds at 480p, audio on where the model offers it
+(`--no-audio` to turn it off) and the provider's watermark off. Without
+`--aspect` none is sent and the model follows the image.
+
+**Frames are URLs.** OpenRouter documents frames as https URLs and says
+nothing about data URIs, so a local path is refused unless you add
+`--allow-data-uri`, which sends the file inline. That is unverified: a job the
+provider rejects after accepting it may fail as a job, and whether a failed
+job is billed is not documented either. The run record keeps a local frame's
+path and SHA-256, never its bytes.
+
+**Priced before it is submitted.** A submitted job runs to its end and is
+billed whether or not Sonde is still waiting, so the only gate is beforehand:
+the run is estimated from OpenRouter's price list and refused if the estimate
+is over `SONDE_VIDEO_MAX_USD` ($1). The estimate leans high — with no aspect
+ratio named, a token-billed model is priced at the largest frame it offers at
+that resolution. What the run record keeps is the provider's actual charge.
+
+**Waiting is not the job.** `sonde video` polls every ten seconds for up to
+`SONDE_VIDEO_MAX_WAIT_MS` (ten minutes). Running out of wait, or Ctrl-C, stops
+the waiting and records the run as `max_wall_ms` with its job id;
+`sonde video fetch <run-id>` picks it up, and is safe to repeat. A job that
+fails — a content-policy refusal included — is reported with the provider's
+message and is not retried, since a retry is a second charge.
+
+**Models.** Only models with a profile in `src/video/profiles.ts` run — the
+profile says how the price list turns into dollars and how to switch the
+watermark off; everything else (durations, resolutions, frames, audio, seed)
+is read from `GET /api/v1/videos/models` at run time. Seedance 2.0 Mini is the
+one shipped. `sonde doctor` checks `SONDE_VIDEO_MODEL` against both.
+
 ## Layout
 
 ```
@@ -298,12 +343,13 @@ src/
   writing/              one-turn prose: write-agent, prompts, styles, characters
     config-file.ts       shared read/parse/error-report for styles.json and characters.json
     archive.ts          saves each piece to .sonde/writing/<timestamp>-<mode>-<run id>.md
+  video/                image-to-video: OpenRouter client, model profiles, frames, run + fetch
   eval/                 writing eval: cases loader, checks, runner, comparison
   store/                sqlite: page cache, run records, event trace
   telemetry/index.ts    AI SDK telemetry integration → sqlite
   util/url.ts           canonicalization + dedupe
   preflight.ts          doctor: key, model capability and credit checks
-  cli.ts                sonde research / write / eval / runs / doctor
+  cli.ts                sonde research / write / video / eval / runs / doctor
 ```
 
 ## Budget gates

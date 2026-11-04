@@ -16,16 +16,19 @@ import { WRITE_STYLES } from "./writing/styles.js";
 import { loadStyles, requireStyle } from "./writing/style-file.js";
 import { loadCharacters, requireCharacter } from "./writing/character-file.js";
 import { WritingPreviewRenderer } from "./writing-preview.js";
+import { fetchVideo, runVideo } from "./video/video-run.js";
 import { loadWritingCases } from "./eval/writing-cases.js";
 import { compareReports, latestReport, readReport, runWritingEval } from "./eval/writing-eval.js";
 import { formatComparison, formatRun, formatSummary } from "./eval/format.js";
-import type { ResearchResult, RunEvent, WriteMode, WriteResult } from "./types.js";
+import type { ResearchResult, RunEvent, VideoEvent, VideoResult, WriteMode, WriteResult } from "./types.js";
 
 const USAGE = `
 sonde — a web research agent
 
   sonde research "<question>" [options]
   sonde write "<brief>" [--mode new|continue|expand] [--in draft.md]
+  sonde video "<direction>" --first <image> [--last <image>]
+  sonde video fetch <run-id>
   sonde runs [--limit N]
   sonde eval [--cases file] [--only id,id] [--repeat N] [--baseline file]
   sonde doctor
@@ -49,6 +52,15 @@ Options
       --length <n>       words to write; the length of what the run returns —
                          the piece under new, the new prose under continue
                          and expand
+      --first <image>    video: the frame the clip opens on (an https URL)
+      --last <image>     video: a frame the clip must end on
+      --duration <s>     video: seconds of clip (default 5)
+      --resolution <r>   video: e.g. 480p (default) or 720p
+      --aspect <ratio>   video: e.g. 16:9; omitted, the model follows the image
+      --no-audio         video: leave the clip silent
+      --seed <n>         video: repeat a generation
+      --allow-data-uri   video: send local image files inline (not documented
+                         by OpenRouter — a rejected job may still be billed)
       --cases <file>     eval: cases file (default evals/writing/cases.json)
       --only <ids>       eval: comma-separated case ids to run
       --repeat <n>       eval: runs per case (default 1)
@@ -66,6 +78,11 @@ gitignored). One named for a built-in style replaces it. See styles.example.json
 A project's cast goes in SONDE_CHARACTERS_FILE (.sonde/characters.json, also
 gitignored) — a record of ids to character cards, injected with --character
 <id> (repeatable). See characters.example.json.
+
+Every video run is priced before it is submitted and refused if the estimate
+is over SONDE_VIDEO_MAX_USD. The clip is saved under SONDE_VIDEO_DIR
+(.sonde/video) and its path printed. A run that stops waiting leaves the job
+running — and billed — on OpenRouter; sonde video fetch <run-id> collects it.
 
 sonde eval runs the writing cases through the real model — every run is billed
 — checks what came back, saves a report under .sonde/evals, and compares it
@@ -95,6 +112,14 @@ async function main(): Promise<number> {
       repeat: { type: "string" },
       baseline: { type: "string" },
       label: { type: "string" },
+      first: { type: "string" },
+      last: { type: "string" },
+      duration: { type: "string" },
+      resolution: { type: "string" },
+      aspect: { type: "string" },
+      "no-audio": { type: "boolean", default: false },
+      seed: { type: "string" },
+      "allow-data-uri": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -151,6 +176,7 @@ async function main(): Promise<number> {
 
   if (command === "write") return writeCommand(values, positionals.slice(1));
   if (command === "eval") return evalCommand(values);
+  if (command === "video") return videoCommand(values, positionals.slice(1));
 
   if (command !== "research") {
     process.stderr.write(`Unknown command: ${command}\n${USAGE}`);
@@ -298,6 +324,78 @@ async function writeCommand(
   logWriteUsage(result, log);
   if (savedTo) logSavedPath(savedTo, result.complete, log);
   return result.complete ? 0 : 2;
+}
+
+async function videoCommand(
+  values: Record<string, string | string[] | boolean | undefined>,
+  args: string[],
+): Promise<number> {
+  const config = loadConfig(); if (values.quiet) config.logLevel = "silent";
+  const log = createLogger(config.logLevel);
+  const controller = new AbortController();
+  process.once("SIGINT", () => controller.abort());
+  const seams = { config, signal: controller.signal, onEvent: (event: VideoEvent) => renderVideoEvent(event, log) };
+  // `fetch` is a subcommand only without --first: a direction may be the word itself.
+  const result = args[0] === "fetch" && values.first === undefined
+    ? await fetchVideo({ ...seams, runId: requireArg(args[1], "A run id is required: sonde video fetch <run-id>.") })
+    : await runVideo({
+        ...seams,
+        direction: requireArg(args.join(" ").trim(), "A direction is required."),
+        first: requireArg(values.first, "--first is required: the image the clip opens on."),
+        last: typeof values.last === "string" ? values.last : undefined,
+        duration: parseCount(values.duration, "--duration"),
+        resolution: typeof values.resolution === "string" ? values.resolution : undefined,
+        aspectRatio: typeof values.aspect === "string" ? values.aspect : undefined,
+        audio: values["no-audio"] ? false : undefined,
+        seed: parseCount(values.seed, "--seed", true),
+        allowDataUri: values["allow-data-uri"] === true,
+      });
+  // stdout carries the clip's path and nothing else, so it can be piped.
+  if (values.json) await writeStdout(JSON.stringify(result, null, 2) + "\n");
+  else if (result.record.clipPath) await writeStdout(result.record.clipPath + "\n");
+  logVideoUsage(result, log);
+  return result.stoppedBy === "complete" ? 0 : 2;
+}
+
+function requireArg(value: string | string[] | boolean | undefined, error: string): string {
+  if (typeof value !== "string" || value === "") throw new Error(error);
+  return value;
+}
+
+/** A whole number for a flag, or undefined when the flag is absent. */
+function parseCount(value: string | string[] | boolean | undefined, flag: string, zero = false): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < (zero ? 0 : 1)) throw new Error(`${flag} must be a whole number.`);
+  return n;
+}
+
+function renderVideoEvent(event: VideoEvent, log: ReturnType<typeof createLogger>): void {
+  const { c } = log;
+  switch (event.type) {
+    case "video_start":
+      log.info(`${c.bold("sonde")} ${c.dim(event.runId)}  ${event.model} · estimated ${usd(event.estimateUsd)}`);
+      break;
+    case "video_submitted":
+      log.info(c.dim(`  submitted ${event.jobId}`));
+      break;
+    case "video_status":
+      log.info(`  ${c.cyan(event.status)} ${c.dim(`${(event.elapsedMs / 1000).toFixed(0)}s`)}`);
+      break;
+    case "warning":
+      log.warn(event.message);
+      break;
+    case "video_end":
+      break;
+  }
+}
+
+/** What the clip cost and where it went, on stderr, so stdout stays the path. */
+function logVideoUsage(result: VideoResult, log: ReturnType<typeof createLogger>): void {
+  const r = result.record;
+  const cost = r.costUsd === null ? `estimated ${usd(r.estimateUsd)}` : usd(r.costUsd);
+  log.info(log.c.dim(`${r.request.duration}s ${r.request.resolution} · ${cost} · stopped: ${result.stoppedBy}`));
+  if (r.clipPath) log.info(log.c.green(`→ saved to ${r.clipPath}`));
 }
 
 const DEFAULT_EVAL_CASES = "evals/writing/cases.json";

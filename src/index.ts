@@ -33,5 +33,17 @@ export {
   requireStyle,
   type StyleCatalogue,
 } from "./writing/style-file.js";
+export {
+  runVideo,
+  fetchVideo,
+  type RunVideoOptions,
+  type FetchVideoOptions,
+} from "./video/video-run.js";
+export {
+  VIDEO_PROFILES,
+  estimateUsd,
+  planVideo,
+  type VideoProfile,
+} from "./video/profiles.js";
 export { canonicalizeUrl, dedupeByUrl, hostOf } from "./util/url.js";
 export type * from "./types.js";
