@@ -14,9 +14,10 @@ export interface VideoProfile {
     /** Billed per second of output, in dollars. */
     | { scheme: "seconds" };
   /**
-  * Passthrough options keyed by provider slug. OpenRouter forwards only the
-  * entry for whichever provider it routes to, so every slug that may serve
-  * the model is listed.
+  * Passthrough options keyed by provider slug, each under `parameters` as
+  * OpenRouter's video docs give it — a key outside that shape is silently
+  * dropped. OpenRouter forwards only the entry for whichever provider it
+  * routes to, so every slug that may serve the model is listed.
   */
   watermarkOff: Record<string, Record<string, unknown>>;
 }
@@ -24,7 +25,14 @@ export interface VideoProfile {
 export const VIDEO_PROFILES: Record<string, VideoProfile> = {
   "bytedance/seedance-2.0-mini": {
     pricing: { scheme: "tokens", fps: 24 },
-    watermarkOff: { seed: { watermark: false }, byteplus: { watermark: false } },
+    watermarkOff: {
+      seed: { parameters: { watermark: false } },
+      byteplus: { parameters: { watermark: false } },
+    },
+  },
+  "minimax/hailuo-3-max": {
+    pricing: { scheme: "seconds" },
+    watermarkOff: { minimax: { parameters: { aigc_watermark: false } } },
   },
 };
 

@@ -17,6 +17,7 @@ import { loadStyles, requireStyle } from "./writing/style-file.js";
 import { loadCharacters, requireCharacter } from "./writing/character-file.js";
 import { WritingPreviewRenderer } from "./writing-preview.js";
 import { fetchVideo, runVideo } from "./video/video-run.js";
+import { VIDEO_PROFILES } from "./video/profiles.js";
 import { loadWritingCases } from "./eval/writing-cases.js";
 import { compareReports, latestReport, readReport, runWritingEval } from "./eval/writing-eval.js";
 import { formatComparison, formatRun, formatSummary } from "./eval/format.js";
@@ -27,7 +28,7 @@ sonde — a web research agent
 
   sonde research "<question>" [options]
   sonde write "<brief>" [--mode new|continue|expand] [--in draft.md]
-  sonde video "<direction>" --first <image> [--last <image>]
+  sonde video "<direction>" --first <image> [--last <image>] [--model <id>]
   sonde video fetch <run-id>
   sonde runs [--limit N]
   sonde eval [--cases file] [--only id,id] [--repeat N] [--baseline file]
@@ -55,6 +56,8 @@ Options
       --first <image>    video: the frame the clip opens on (an https URL or a
                          local PNG, JPEG or WebP file)
       --last <image>     video: a frame the clip must end on
+      --model <id>       video: a profiled model for this run (default
+                         SONDE_VIDEO_MODEL): ${Object.keys(VIDEO_PROFILES).join(", ")}
       --duration <s>     video: seconds of clip (default 5)
       --resolution <r>   video: e.g. 480p (default) or 720p
       --aspect <ratio>   video: e.g. 16:9; omitted, the model follows the image
@@ -118,6 +121,7 @@ async function main(): Promise<number> {
       aspect: { type: "string" },
       "no-audio": { type: "boolean", default: false },
       seed: { type: "string" },
+      model: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -339,6 +343,7 @@ async function videoCommand(
     : await runVideo({
         ...seams,
         direction: requireArg(args.join(" ").trim(), "A direction is required."),
+        model: typeof values.model === "string" ? values.model : undefined,
         first: requireArg(values.first, "--first is required: the image the clip opens on."),
         last: typeof values.last === "string" ? values.last : undefined,
         duration: parseCount(values.duration, "--duration"),

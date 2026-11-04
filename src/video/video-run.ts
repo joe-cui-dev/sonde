@@ -29,6 +29,8 @@ interface VideoSeams {
 
 export interface RunVideoOptions extends VideoSeams {
   direction: string;
+  /** A profiled model id for this run; SONDE_VIDEO_MODEL when omitted. */
+  model?: string;
   /** An https URL, or a local PNG, JPEG or WebP path sent inline. */
   first: string;
   last?: string;
@@ -59,16 +61,17 @@ export async function runVideo(options: RunVideoOptions): Promise<VideoResult> {
   const config = options.config ?? loadConfig();
   const direction = options.direction.trim();
   if (!direction) throw new Error("A direction is required.");
-  const profile = requireProfile(config.videoModel);
+  const modelId = options.model ?? config.videoModel;
+  const profile = requireProfile(modelId);
   const frames = [
     resolveFrame(options.first, "first_frame"),
     ...(options.last ? [resolveFrame(options.last, "last_frame")] : []),
   ];
   const client = clientFor(config, options);
-  const model = (await client.models(options.signal)).find((m) => m.id === config.videoModel);
+  const model = (await client.models(options.signal)).find((m) => m.id === modelId);
   if (!model) {
     throw new Error(
-      `${config.videoModel} is not in OpenRouter's video catalogue — check SONDE_VIDEO_MODEL with sonde doctor.`,
+      `${modelId} is not in OpenRouter's video catalogue — check --model or SONDE_VIDEO_MODEL (sonde doctor checks the latter).`,
     );
   }
   const spec = planVideo(model, {

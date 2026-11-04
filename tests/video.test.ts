@@ -36,19 +36,22 @@ const MINI: VideoModel = {
   allowed_passthrough_parameters: ["watermark", "req_key", "return_last_frame"],
 };
 
-/** MiniMax H3 Max, the shape of a per-second model with no audio and no seed. */
+/** MiniMax H3 Max as the catalogue listed it in November 2026: per-second, no audio, no seed. */
 const H3_MAX: VideoModel = {
   id: "minimax/hailuo-3-max",
   supported_resolutions: ["768p", "480p"],
   supported_aspect_ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
   supported_sizes: null,
   supported_durations: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-  supported_frame_images: ["first_frame"],
+  supported_frame_images: ["first_frame", "last_frame"],
   generate_audio: false,
   seed: false,
   pricing_skus: { duration_seconds: "0.08", duration_seconds_480p: "0.05", duration_seconds_768p: "0.08" },
   allowed_passthrough_parameters: ["aigc_watermark"],
 };
+
+/** A model that can open a clip on an image but not end on one. */
+const FIRST_ONLY: VideoModel = { ...H3_MAX, id: "example/first-only", supported_frame_images: ["first_frame"] };
 
 const PER_SECOND: VideoProfile = { pricing: { scheme: "seconds" }, watermarkOff: {} };
 const MINI_PROFILE = requireProfile(MINI.id);
@@ -136,7 +139,7 @@ describe("video cost estimate", () => {
   });
 
   test("refuses a model with no profile", () => {
-    expect(() => requireProfile("minimax/hailuo-3-max")).toThrow(/no video profile/);
+    expect(() => requireProfile("minimax/hailuo-2.3")).toThrow(/no video profile/);
   });
 });
 
@@ -150,7 +153,7 @@ describe("video request against the catalogue", () => {
   test("names what the model takes instead of a request it does not", () => {
     expect(() => planVideo(MINI, { duration: 3, lastFrame: false })).toThrow("--duration 3 is not offered by bytedance/seedance-2.0-mini; it takes 4, 5");
     expect(() => planVideo(MINI, { resolution: "1080p", lastFrame: false })).toThrow(/--resolution 1080p/);
-    expect(() => planVideo(H3_MAX, { lastFrame: true })).toThrow(/--last is not offered/);
+    expect(() => planVideo(FIRST_ONLY, { lastFrame: true })).toThrow(/--last is not offered/);
     expect(() => planVideo(H3_MAX, { seed: 7, lastFrame: false })).toThrow(/--seed is not offered/);
   });
 });
@@ -179,7 +182,12 @@ describe("video run", () => {
       resolution: "480p",
       generate_audio: true,
       frame_images: [{ type: "image_url", image_url: { url: IMAGE }, frame_type: "first_frame" }],
-      provider: { options: { seed: { watermark: false }, byteplus: { watermark: false } } },
+      provider: {
+        options: {
+          seed: { parameters: { watermark: false } },
+          byteplus: { parameters: { watermark: false } },
+        },
+      },
     });
     expect(events.filter((e) => e.type === "video_status").map((e) => e.type === "video_status" && e.status))
       .toEqual(["in_progress", "completed"]);
@@ -189,6 +197,36 @@ describe("video run", () => {
     expect(runRow(config.dbPath, "run_ok")).toEqual(
       expect.objectContaining({ kind: "video", stopped_by: "complete", usd: 0.17 }),
     );
+  });
+
+  test("--model picks H3 Max over the configured model: no audio field, its own watermark switch and a per-second estimate", async () => {
+    const config = testConfig(databasePath());
+    const api = fakeOpenRouter({ jobs: [{ status: "completed", usage: { cost: 0.25 } }] });
+    const result = await runVideo({
+      direction: "x", first: IMAGE, last: IMAGE, model: H3_MAX.id, config, fetch: api.fetch, pollIntervalMs: 1,
+    });
+    expect(config.videoModel).toBe(MINI.id);
+    expect(result.record.estimateUsd).toBeCloseTo(0.25, 6);
+    expect(api.calls.find((call) => call.method === "POST")!.body).toEqual({
+      model: H3_MAX.id,
+      prompt: "x",
+      duration: 5,
+      resolution: "480p",
+      frame_images: [
+        { type: "image_url", image_url: { url: IMAGE }, frame_type: "first_frame" },
+        { type: "image_url", image_url: { url: IMAGE }, frame_type: "last_frame" },
+      ],
+      provider: { options: { minimax: { parameters: { aigc_watermark: false } } } },
+    });
+  });
+
+  test("refuses a --model with no profile before calling OpenRouter", async () => {
+    const config = testConfig(databasePath());
+    const api = fakeOpenRouter();
+    await expect(
+      runVideo({ direction: "x", first: IMAGE, model: "minimax/hailuo-2.3", config, fetch: api.fetch }),
+    ).rejects.toThrow(/minimax\/hailuo-2.3 has no video profile/);
+    expect(api.calls).toHaveLength(0);
   });
 
   test("never sends the key to a download host other than OpenRouter", async () => {

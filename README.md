@@ -291,6 +291,7 @@ sonde video "the camera pushes in slowly as the lamp flickers" \
   --first ./room.png
 sonde video "she turns toward the window" --first https://…/a.png --last https://…/b.png \
   --duration 8 --resolution 720p --aspect 9:16
+sonde video "the camera drifts forward" --first ./room.png --model minimax/hailuo-3-max
 sonde video fetch run_1a2b3c4d     # collect a clip the run stopped waiting for
 ```
 
@@ -323,8 +324,12 @@ message and is not retried, since a retry is a second charge.
 **Models.** Only models with a profile in `src/video/profiles.ts` run — the
 profile says how the price list turns into dollars and how to switch the
 watermark off; everything else (durations, resolutions, frames, audio, seed)
-is read from `GET /api/v1/videos/models` at run time. Seedance 2.0 Mini is the
-one shipped. `sonde doctor` checks `SONDE_VIDEO_MODEL` against both.
+is read from `GET /api/v1/videos/models` at run time. Two are shipped:
+`bytedance/seedance-2.0-mini` (the default; billed per video token, audio and
+seed) and `minimax/hailuo-3-max` (billed per second — $0.05/s at 480p, $0.08/s
+at 768p — with no audio or seed). `SONDE_VIDEO_MODEL` sets the default and
+`--model` overrides it for one run; `sonde doctor` checks the default against
+both.
 
 ## Layout
 
