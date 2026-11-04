@@ -109,8 +109,25 @@ export function jobError(job: VideoJob): string {
 async function errorText(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { error?: { message?: string } };
-    return `HTTP ${res.status} — ${body.error?.message ?? "no message"}`;
+    return `HTTP ${res.status} — ${providerMessage(body.error?.message) ?? "no message"}`;
   } catch {
     return `HTTP ${res.status}`;
+  }
+}
+
+/**
+* OpenRouter passes some upstream refusals through as the provider's raw
+* response — `HTTP 400: {"error":{"code":…,"message":…}}` — inside its own
+* message. Those are unwrapped to the provider's code and message.
+*/
+function providerMessage(message: string | undefined): string | undefined {
+  const raw = message?.match(/^HTTP \d+:\s*(\{[\s\S]*\})\s*$/)?.[1];
+  if (!raw) return message;
+  try {
+    const inner = (JSON.parse(raw) as { error?: { code?: unknown; message?: string } }).error;
+    if (!inner?.message) return message;
+    return inner.code !== undefined ? `${String(inner.code)}: ${inner.message}` : inner.message;
+  } catch {
+    return message;
   }
 }

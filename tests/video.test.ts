@@ -264,6 +264,21 @@ describe("video run", () => {
     expect(result.warnings.at(-1)).toMatch(/not submitted: .*402.*Insufficient credits/);
     await expect(fetchVideo({ runId: "run_402", config, fetch: api.fetch })).rejects.toThrow(/never submitted/);
   });
+
+  test("a provider refusal passed through by OpenRouter reads as the provider's code and message", async () => {
+    const config = testConfig(databasePath());
+    const upstream = JSON.stringify({
+      error: { code: "InputImageSensitiveContentDetected", message: "The input image may contain sensitive information.", type: "BadRequest" },
+    });
+    const api = fakeOpenRouter({
+      submit: Response.json({ error: { code: 400, message: `HTTP 400: ${upstream}` } }, { status: 400 }),
+    });
+    const result = await runVideo({ direction: "x", first: IMAGE, config, fetch: api.fetch });
+    expect(result.warnings.at(-1)).toBe(
+      "the job was not submitted: OpenRouter refused the job: HTTP 400 — " +
+        "InputImageSensitiveContentDetected: The input image may contain sensitive information.",
+    );
+  });
 });
 
 describe("collecting a clip later", () => {
